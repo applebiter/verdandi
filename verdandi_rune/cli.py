@@ -67,6 +67,41 @@ def cmd_config(args):
         print(yaml.dump(config.to_dict(), default_flow_style=False, sort_keys=False))
 
 
+def cmd_certs(args):
+    """Manage certificates."""
+    from verdandi_codex.crypto import NodeCertificateManager
+    
+    config = VerdandiConfig.load()
+    cert_manager = NodeCertificateManager()
+    
+    if args.init:
+        # Initialize certificates
+        created = cert_manager.ensure_node_certificate(
+            config.node.node_id,
+            config.node.hostname,
+        )
+        if created:
+            print("✓ Certificates created successfully")
+        else:
+            print("✓ Certificates already exist")
+        
+        paths = cert_manager.get_certificate_paths()
+        print(f"\nCA Certificate:   {paths['ca_cert']}")
+        print(f"Node Certificate: {paths['node_cert']}")
+        print(f"Node Key:         {paths['node_key']}")
+    
+    elif args.show:
+        paths = cert_manager.get_certificate_paths()
+        fingerprint = cert_manager.get_certificate_fingerprint()
+        
+        print("Certificate Status")
+        print("=" * 50)
+        print(f"CA Certificate:   {paths['ca_cert']}")
+        print(f"Node Certificate: {paths['node_cert']}")
+        print(f"Node Key:         {paths['node_key']}")
+        print(f"\nFingerprint:      {fingerprint or '(not found)'}")
+
+
 def main():
     """Main CLI entry point."""
     structlog.configure(
@@ -103,6 +138,20 @@ def main():
         help="Edit configuration file in $EDITOR",
     )
     parser_config.set_defaults(func=cmd_config)
+    
+    # Certs command
+    parser_certs = subparsers.add_parser("certs", help="Manage certificates")
+    parser_certs.add_argument(
+        "--init",
+        action="store_true",
+        help="Initialize/create certificates",
+    )
+    parser_certs.add_argument(
+        "--show",
+        action="store_true",
+        help="Show certificate information",
+    )
+    parser_certs.set_defaults(func=cmd_certs)
     
     args = parser.parse_args()
     

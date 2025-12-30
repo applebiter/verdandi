@@ -9,7 +9,9 @@ import structlog
 from pathlib import Path
 
 from verdandi_codex.config import VerdandiConfig
-from verdandi_codex.database import Database, DatabaseConfig
+from verdandi_codex.database import Database
+from verdandi_codex.crypto import NodeCertificateManager
+from .grpc_server import GrpcServer
 
 
 logger = structlog.get_logger()
@@ -22,6 +24,7 @@ class VerdandiDaemon:
         self.config = config
         self.running = False
         self.db: Database = None
+        self.grpc_server: GrpcServer = None
         
     async def start(self):
         """Start the daemon."""
@@ -31,6 +34,18 @@ class VerdandiDaemon:
             hostname=self.config.node.hostname,
         )
         
+        # Ensure certificates exist
+        logger.info("ensuring_certificates")
+        cert_manager = NodeCertificateManager()
+        created = cert_manager.ensure_node_certificate(
+            self.config.node.node_id,
+            self.config.node.hostname,
+        )
+        if created:
+            logger.info("certificates_created")
+        else:
+            logger.info("certificates_exist")
+        
         # Initialize database connection
         try:
             self.db = Database(self.config.database)
@@ -39,6 +54,10 @@ class VerdandiDaemon:
             logger.error("database_connection_failed", error=str(e))
             # Continue in degraded mode
             self.db = None
+        
+        # Start gRPC server
+        self.grpc_server = GrpcServer(self.config)
+        self.grpc_server.start()
         
         self.running = True
         logger.info("verdandi_engine_started")
@@ -52,9 +71,12 @@ class VerdandiDaemon:
         logger.info("stopping_verdandi_engine")
         self.running = False
         
-        # Cleanup
+        # Stop gRPC server
+        if self.grpc_server:
+            self.grpc_server.stop()
+        
+        # Cleanup database
         if self.db:
-            # Close database connections if needed
             pass
         
         logger.info("verdandi_engine_stopped")

@@ -1,0 +1,115 @@
+syntax = "proto3";
+
+package verdandi;
+
+// Common types
+message Empty {}
+
+message NodeInfo {
+    string node_id = 1;
+    string hostname = 2;
+    string display_name = 3;
+    string daemon_version = 4;
+    string cert_fingerprint = 5;
+}
+
+message CapabilitySnapshot {
+    string cpu_arch = 1;
+    int32 cpu_cores = 2;
+    int32 ram_total_mb = 3;
+    string gpu_vendor = 4;
+    string gpu_model = 5;
+    int32 vram_mb = 6;
+    string os_distro = 7;
+    string os_version = 8;
+    
+    bool supports_stt = 9;
+    repeated string stt_backends = 10;
+    bool supports_tts = 11;
+    repeated string tts_backends = 12;
+    bool supports_embeddings = 13;
+    repeated string embedding_models = 14;
+    bool supports_comfyui = 15;
+    bool supports_mcp_server = 16;
+    bool supports_mcp_host = 17;
+    
+    repeated string ollama_models = 18;
+    int64 updated_at = 19;
+}
+
+message HealthSnapshot {
+    double cpu_usage_percent = 1;
+    double ram_usage_percent = 2;
+    double gpu_usage_percent = 3;
+    int32 vram_free_mb = 4;
+    int64 daemon_uptime_seconds = 5;
+    bool degraded_mode = 6;
+    string status = 7;
+}
+
+// NodeIdentityService
+service NodeIdentityService {
+    rpc GetNodeInfo(Empty) returns (NodeInfo);
+    rpc Ping(PingRequest) returns (PingResponse);
+}
+
+message PingRequest {
+    int64 timestamp = 1;
+}
+
+message PingResponse {
+    int64 timestamp = 1;
+    int64 server_timestamp = 2;
+}
+
+// HealthMetricsService
+service HealthMetricsService {
+    rpc GetHealthSnapshot(Empty) returns (HealthSnapshot);
+    rpc WatchHealth(WatchHealthRequest) returns (stream HealthEvent);
+}
+
+message WatchHealthRequest {
+    int32 interval_seconds = 1;  // Update interval
+}
+
+message HealthEvent {
+    int64 timestamp = 1;
+    HealthSnapshot snapshot = 2;
+}
+
+// DiscoveryAndRegistryService
+service DiscoveryAndRegistryService {
+    rpc GetKnownNodes(Empty) returns (KnownNodesResponse);
+    rpc WatchPresence(WatchPresenceRequest) returns (stream PresenceEvent);
+}
+
+message KnownNodesResponse {
+    repeated NodePresence nodes = 1;
+}
+
+message NodePresence {
+    string node_id = 1;
+    string hostname = 2;
+    string display_name = 3;
+    string ip_address = 4;
+    int32 daemon_port = 5;
+    int64 last_seen_at = 6;
+    string status = 7;
+    CapabilitySnapshot capabilities = 8;
+}
+
+message WatchPresenceRequest {
+    // Empty for now, could add filters
+}
+
+message PresenceEvent {
+    enum EventType {
+        NODE_DISCOVERED = 0;
+        NODE_UPDATED = 1;
+        NODE_LOST = 2;
+    }
+    
+    EventType event_type = 1;
+    NodePresence node = 2;
+    int64 timestamp = 3;
+}
