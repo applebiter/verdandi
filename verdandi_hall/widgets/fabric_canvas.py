@@ -765,107 +765,26 @@ class FabricCanvas(QGraphicsView):
     
     def add_link_node(self, x: float, y: float):
         """Add a new link node at position."""
-        from PySide6.QtWidgets import QDialog, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox, QRadioButton, QButtonGroup, QVBoxLayout
+        from PySide6.QtWidgets import QDialog, QFormLayout, QSpinBox, QDialogButtonBox, QMessageBox
         
-        # Check for hub/p2p exclusivity
-        existing_mode = None
-        try:
-            with self.database.get_session() as session:
-                from verdandi_codex.models.fabric import FabricLink
-                import json
-                links = session.query(FabricLink).all()
-                for link in links:
-                    params = json.loads(link.params_json) if isinstance(link.params_json, str) else link.params_json or {}
-                    mode = params.get('mode')
-                    if mode:
-                        existing_mode = mode
-                        break
-        except Exception as e:
-            logger.error(f"Failed to check existing links: {e}", exc_info=True)
+        # Get selected hub node from parent widget
+        hub_node_id = None
+        hub_node_name = "unknown"
+        if hasattr(self.parent_widget, 'hub_node_combo'):
+            hub_node_id = self.parent_widget.hub_node_combo.currentData()
+            hub_node_name = self.parent_widget.hub_node_combo.currentText()
+        
+        if not hub_node_id:
+            QMessageBox.warning(None, "No Hub Selected", "Please select a hub node from the dropdown above the canvas.")
+            return
         
         # Show configuration dialog
         dialog = QDialog()
         dialog.setWindowTitle("Add Link Node")
         layout = QFormLayout(dialog)
         
-        # Mode selection with exclusivity check
-        mode_layout = QVBoxLayout()
-        mode_group = QButtonGroup(dialog)
-        p2p_radio = QRadioButton("P2P (Point-to-Point)")
-        hub_radio = QRadioButton("HUB (Hub Server)")
-        
-        if existing_mode == "HUB":
-            p2p_radio.setEnabled(False)
-            hub_radio.setChecked(True)
-            mode_layout.addWidget(QLabel("⚠ HUB mode already in use - P2P disabled"))
-        elif existing_mode == "P2P":
-            hub_radio.setEnabled(False)
-            p2p_radio.setChecked(True)
-            mode_layout.addWidget(QLabel("⚠ P2P mode already in use - HUB disabled"))
-        else:
-            p2p_radio.setChecked(True)
-        
-        mode_group.addButton(p2p_radio)
-        mode_group.addButton(hub_radio)
-        mode_layout.addWidget(p2p_radio)
-        mode_layout.addWidget(hub_radio)
-        layout.addRow("Mode:", mode_layout)
-        
-        # Hub Node Selection (only shown for Hub mode)
-        hub_node_label = QLabel("Hub Node:")
-        hub_node_combo = QComboBox()
-        
-        # Populate with available nodes
-        hub_nodes = {}
-        try:
-            with self.database.get_session() as session:
-                from verdandi_codex.models.identity import Node
-                nodes = session.query(Node).all()
-                for node in nodes:
-                    display = f"{node.hostname} ({node.display_name or 'unnamed'})"
-                    hub_node_combo.addItem(display, str(node.node_id))
-                    hub_nodes[str(node.node_id)] = node.hostname
-        except Exception as e:
-            logger.error(f"Failed to load nodes: {e}", exc_info=True)
-        
-        layout.addRow(hub_node_label, hub_node_combo)
-        
-        # Show/hide hub selection based on mode
-        def update_hub_visibility():
-            is_hub = hub_radio.isChecked()
-            hub_node_label.setVisible(is_hub)
-            hub_node_combo.setVisible(is_hub)
-        
-        p2p_radio.toggled.connect(update_hub_visibility)
-        hub_radio.toggled.connect(update_hub_visibility)
-        update_hub_visibility()  # Set initial state
-        
-        # Hub node selection (only shown for Hub mode)
-        hub_node_label = QLabel("Hub Node:")
-        hub_node_combo = QComboBox()
-        hub_node_combo.setEnabled(False)
-        
-        # Load available nodes
-        try:
-            with self.database.get_session() as session:
-                from verdandi_codex.models.identity import Node
-                nodes = session.query(Node).all()
-                for node in nodes:
-                    hub_node_combo.addItem(f"{node.hostname} ({node.ip_last_seen})", userData=str(node.node_id))
-        except Exception as e:
-            logger.error(f"Failed to load nodes: {e}", exc_info=True)
-        
-        layout.addRow(hub_node_label, hub_node_combo)
-        
-        # Enable/disable hub node selector based on mode
-        def on_mode_changed():
-            is_hub = hub_radio.isChecked()
-            hub_node_combo.setEnabled(is_hub)
-            hub_node_label.setEnabled(is_hub)
-        
-        p2p_radio.toggled.connect(on_mode_changed)
-        hub_radio.toggled.connect(on_mode_changed)
-        on_mode_changed()  # Set initial state
+        # Display selected hub (read-only)
+        layout.addRow(QLabel(f"<b>Hub Mode</b> - Using hub: {hub_node_name}"))
         
         # Send Channels
         send_channels_spin = QSpinBox()
@@ -898,7 +817,7 @@ class FabricCanvas(QGraphicsView):
         
         # Generate link ID
         link_id = str(uuid.uuid4())
-        mode = "HUB" if hub_radio.isChecked() else "P2P"
+        mode = "HUB"  # Always HUB mode now
         send_channels = send_channels_spin.value()
         receive_channels = receive_channels_spin.value()
         
@@ -929,13 +848,7 @@ class FabricCanvas(QGraphicsView):
                     logger.error("No nodes found in database")
                     return
                 
-                # For Hub mode, use selected hub node
-                hub_node_id = None
-                if mode == "HUB":
-                    hub_node_id = hub_node_combo.currentData()
-                    if not hub_node_id:
-                        logger.error("No hub node selected")
-                        return
+                # Hub node already validated and stored in hub_node_id variable
                 
                 link = FabricLink(
                     link_id=link_id,
@@ -1119,6 +1032,18 @@ class FabricCanvasWidget(QWidget):
         self.sample_rate = sample_rate
         self.buffer_size = buffer_size
         
+        # Hub Node Selection (global for all links)
+        hub_layout = QHBoxLayout()
+        hub_layout.addWidget(QLabel("<b>Hub Node:</b>"))
+        
+        self.hub_node_combo = QComboBox()
+        self._populate_hub_nodes()
+        hub_layout.addWidget(self.hub_node_combo)
+        hub_layout.addWidget(QLabel("<i>(All links will use this hub)</i>"))
+        hub_layout.addStretch()
+        
+        layout.addLayout(hub_layout)
+        
         # Controls
         controls = QHBoxLayout()
         
@@ -1142,9 +1067,23 @@ class FabricCanvasWidget(QWidget):
         
         self._update_status()
     
+    def _populate_hub_nodes(self):
+        """Load available nodes into hub selector."""
+        self.hub_node_combo.clear()
+        try:
+            with self.database.get_session() as session:
+                from verdandi_codex.models.identity import Node
+                nodes = session.query(Node).all()
+                for node in nodes:
+                    display = f"{node.hostname} ({node.display_name or 'unnamed'})"
+                    self.hub_node_combo.addItem(display, str(node.node_id))
+        except Exception as e:
+            logger.error(f"Failed to load hub nodes: {e}", exc_info=True)
+    
     def _on_refresh(self):
         """Manual refresh."""
         self.canvas.refresh()
+        self._populate_hub_nodes()
         self._update_status()
     
     def _on_add_link(self):
