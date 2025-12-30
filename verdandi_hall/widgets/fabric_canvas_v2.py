@@ -280,11 +280,7 @@ class FabricCanvas(QGraphicsView):
             for link in links:
                 link_id = str(link.link_id)
                 if link_id not in self.link_nodes:
-                    # params_json is already a dict if stored as JSON type
-                    if isinstance(link.params_json, str):
-                        params = json.loads(link.params_json)
-                    else:
-                        params = link.params_json or {}
+                    params = json.loads(link.params_json) if link.params_json else {}
                     
                     # Determine mode (default P2P for now)
                     mode = params.get('mode', 'P2P')

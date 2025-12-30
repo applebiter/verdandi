@@ -142,11 +142,13 @@ class VerdandiHall(QMainWindow):
     def _init_fabric_tab(self):
         """Initialize fabric tab after database is ready."""
         if self.db:
-            fabric_widget = self._create_fabric_tab()
+            self.fabric_widget = self._create_fabric_tab()
+            # Connect signals
+            self.fabric_widget.canvas.node_double_clicked.connect(self._on_fabric_node_clicked)
             # Replace placeholder with actual widget
             index = self.tabs.indexOf(self.fabric_tab_placeholder)
             self.tabs.removeTab(index)
-            self.tabs.insertTab(index, fabric_widget, "Fabric Graph")
+            self.tabs.insertTab(index, self.fabric_widget, "Fabric Graph")
         
     def _init_database(self):
         """Initialize database connection."""
@@ -323,6 +325,43 @@ class VerdandiHall(QMainWindow):
             
             # Remove from tracking
             del self.remote_jack_tabs[node_id]
+    
+    def _on_fabric_node_clicked(self, node_id: str):
+        """Handle fabric canvas node double-click."""
+        # Find node info and open remote JACK tab
+        try:
+            session = self.db.get_session()
+            node = session.query(Node).filter_by(node_id=node_id).first()
+            session.close()
+            
+            if not node:
+                return
+            
+            # Use same logic as node list click
+            if node_id == self.config.node.node_id:
+                # Switch to JACK Graph tab
+                for i in range(self.tabs.count()):
+                    if self.tabs.tabText(i) == "JACK Graph":
+                        self.tabs.setCurrentIndex(i)
+                        break
+            else:
+                # Open or switch to remote JACK tab
+                if node_id in self.remote_jack_tabs:
+                    tab_widget = self.remote_jack_tabs[node_id]
+                    for i in range(self.tabs.count()):
+                        if self.tabs.widget(i) == tab_widget:
+                            self.tabs.setCurrentIndex(i)
+                            return
+                else:
+                    remote_tab = self._create_remote_jack_tab(node)
+                    tab_name = f"{node.hostname} JACK"
+                    tab_index = self.tabs.addTab(remote_tab, tab_name)
+                    self.tabs.setCurrentIndex(tab_index)
+                    self.remote_jack_tabs[node_id] = remote_tab
+                    self.status_bar.showMessage(f"Opened remote JACK graph for {node.hostname}", 3000)
+                    
+        except Exception as e:
+            logger.error("fabric_node_click_failed", error=str(e), node_id=node_id)
 
 
 def main():
