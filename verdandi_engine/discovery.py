@@ -68,9 +68,12 @@ class DiscoveryService:
         fingerprint = cert_manager.get_certificate_fingerprint() or ""
         
         # Create service info
+        # Use node_id prefix for unique service name
+        service_name = f"{self.config.node.node_id[:8]}-{self.config.node.hostname}.{self.SERVICE_TYPE}"
+        
         info = ServiceInfo(
             self.SERVICE_TYPE,
-            f"{self.config.node.hostname}.{self.SERVICE_TYPE}",
+            service_name,
             addresses=[socket.inet_aton(local_ip)],
             port=self.config.daemon.grpc_port,
             properties={

@@ -229,7 +229,7 @@ class JackConnectionManager:
                     
                     result = db.execute(
                         select(FabricLink).where(
-                            FabricLink.status.in_([LinkStatus.DESIRED_UP, LinkStatus.UP])
+                            FabricLink.status.in_([LinkStatus.DESIRED_UP, LinkStatus.OBSERVED_UP])
                         )
                     )
                     active_links = result.scalars().all()
