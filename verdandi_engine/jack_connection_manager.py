@@ -105,7 +105,7 @@ class JackConnectionManager:
             
         try:
             # Find JackTrip ports for this link
-            jacktrip_pattern = f"jacktrip_{link_id[:8]}"
+            jacktrip_pattern = f"verdandi_jacktrip_{link_id[:8]}"
             all_ports = self.jack_client.get_ports()
             
             send_ports = []
@@ -182,7 +182,7 @@ class JackConnectionManager:
             
         try:
             # Find JackTrip ports for this link
-            jacktrip_pattern = f"jacktrip_{link_id[:8]}"
+            jacktrip_pattern = f"verdandi_jacktrip_{link_id[:8]}"
             all_ports = self.jack_client.get_ports()
             
             for port in all_ports:
@@ -242,7 +242,7 @@ class JackConnectionManager:
                         continue
                         
                     # Check if JackTrip ports exist
-                    jacktrip_pattern = f"jacktrip_{link.id[:8]}"
+                    jacktrip_pattern = f"verdandi_jacktrip_{link.id[:8]}"
                     ports = self.jack_client.get_ports(name_pattern=f"*{jacktrip_pattern}*")
                     
                     if ports:

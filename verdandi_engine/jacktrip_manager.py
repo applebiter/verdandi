@@ -33,7 +33,7 @@ class JackTripSession:
         self.remote_port = remote_port
         self.channels = channels
         self.mode = mode
-        self.jack_client_name = f"jacktrip_{link_id[:8]}"
+        self.jack_client_name = f"verdandi_jacktrip_{link_id[:8]}"
         
     async def wait(self):
         """Wait for process to exit and return exit code."""
@@ -121,7 +121,7 @@ class JackTripManager:
         # -c = client mode (connects to server)
         # -n = number of channels
         # --clientname = JACK client name
-        jack_client_name = f"jacktrip_{link_id[:8]}"
+        jack_client_name = f"verdandi_jacktrip_{link_id[:8]}"
         
         cmd = [
             str(self.jacktrip_path),
