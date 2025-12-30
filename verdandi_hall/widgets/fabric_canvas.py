@@ -57,22 +57,73 @@ class LinkNodeData:
     client_ids: Optional[List[str]] = None  # For HUB: client nodes
 
 
-class ConnectionWire(QGraphicsLineItem):
-    """Visual wire connecting nodes."""
+class ConnectionPort(QGraphicsEllipseItem):
+    """Visual connection port on a node."""
     
-    def __init__(self, from_item, to_item):
+    def __init__(self, parent_item, port_type: str, angle: float = 0):
+        super().__init__(-8, -8, 16, 16)
+        self.parent_item = parent_item
+        self.port_type = port_type  # "input" or "output"
+        self.angle = angle
+        
+        self.setBrush(QBrush(QColor(200, 200, 200)))
+        self.setPen(QPen(QColor(100, 100, 100), 2))
+        
+        self.setParentItem(parent_item)
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.CrossCursor)
+        
+        # Position based on angle
+        radius = 45 if isinstance(parent_item, FabricNodeItem) else 35
+        import math
+        x = radius * math.cos(math.radians(angle))
+        y = radius * math.sin(math.radians(angle))
+        self.setPos(x, y)
+    
+    def hoverEnterEvent(self, event):
+        self.setBrush(QBrush(QColor(255, 200, 100)))
+        self.setPen(QPen(QColor(255, 150, 0), 3))
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        self.setBrush(QBrush(QColor(200, 200, 200)))
+        self.setPen(QPen(QColor(100, 100, 100), 2))
+        super().hoverLeaveEvent(event)
+
+
+class ConnectionWire(QGraphicsLineItem):
+    """Visual wire connecting nodes via their ports."""
+    
+    def __init__(self, from_item, to_item, from_port=None, to_port=None):
         super().__init__()
         self.from_item = from_item
         self.to_item = to_item
+        self.from_port = from_port
+        self.to_port = to_port
         
-        pen = QPen(QColor(150, 150, 150), 2)
+        pen = QPen(QColor(150, 150, 150), 3)
         self.setPen(pen)
         self.update_position()
     
     def update_position(self):
-        """Update line position based on connected items."""
-        p1 = self.from_item.sceneBoundingRect().center()
-        p2 = self.to_item.sceneBoundingRect().center()
+        """Update line position based on connected items and ports."""
+        if self.from_port and self.to_port:
+            # Connect port to port
+            p1 = self.from_port.sceneBoundingRect().center()
+            p2 = self.to_port.sceneBoundingRect().center()
+        elif self.from_port:
+            # Connect port to item center
+            p1 = self.from_port.sceneBoundingRect().center()
+            p2 = self.to_item.sceneBoundingRect().center()
+        elif self.to_port:
+            # Connect item center to port
+            p1 = self.from_item.sceneBoundingRect().center()
+            p2 = self.to_port.sceneBoundingRect().center()
+        else:
+            # Connect item centers (fallback)
+            p1 = self.from_item.sceneBoundingRect().center()
+            p2 = self.to_item.sceneBoundingRect().center()
+        
         self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
 
 
@@ -80,12 +131,13 @@ class LinkNodeItem(QGraphicsPolygonItem):
     """Diamond-shaped node representing a JackTrip session."""
     
     def __init__(self, link_data: LinkNodeData, x: float, y: float, parent_canvas=None):
-        # Create diamond shape
+        # Create larger diamond shape
+        size = 40
         diamond = QPolygonF([
-            QPointF(0, -30),   # Top
-            QPointF(30, 0),    # Right
-            QPointF(0, 30),    # Bottom
-            QPointF(-30, 0)    # Left
+            QPointF(0, -size),      # Top
+            QPointF(size, 0),       # Right
+            QPointF(0, size),       # Bottom
+            QPointF(-size, 0)       # Left
         ])
         super().__init__(diamond)
         
@@ -118,6 +170,12 @@ class LinkNodeItem(QGraphicsPolygonItem):
         self.setToolTip(tooltip)
         
         self.setAcceptHoverEvents(True)
+        
+        # Add connection ports at cardinal points
+        self.input_port_left = ConnectionPort(self, "input", 180)   # Left
+        self.input_port_top = ConnectionPort(self, "input", 270)    # Top
+        self.output_port_right = ConnectionPort(self, "output", 0)  # Right
+        self.output_port_bottom = ConnectionPort(self, "output", 90) # Bottom
     
     def paint(self, painter, option, widget):
         super().paint(painter, option, widget)
@@ -155,7 +213,9 @@ class FabricNodeItem(QGraphicsEllipseItem):
     """Circular node representing a physical machine."""
     
     def __init__(self, node: NodeGraphics, parent_canvas=None):
-        super().__init__(-30, -30, 60, 60)
+        # Larger circle
+        radius = 45
+        super().__init__(-radius, -radius, radius*2, radius*2)
         self.node = node
         self.parent_canvas = parent_canvas
         
@@ -178,6 +238,12 @@ class FabricNodeItem(QGraphicsEllipseItem):
                   f"ID: {node.node_id[:8]}\n\n"
                   f"Double-click: Open JACK graph")
         self.setToolTip(tooltip)
+        
+        # Add connection ports around the perimeter
+        self.output_port_right = ConnectionPort(self, "output", 0)    # Right
+        self.output_port_bottom = ConnectionPort(self, "output", 90)  # Bottom
+        self.input_port_left = ConnectionPort(self, "input", 180)     # Left
+        self.input_port_top = ConnectionPort(self, "input", 270)      # Top
     
     def paint(self, painter, option, widget):
         super().paint(painter, option, widget)
@@ -185,7 +251,7 @@ class FabricNodeItem(QGraphicsEllipseItem):
         # Draw hostname
         painter.setFont(QFont("Sans", 10, QFont.Bold))
         painter.setPen(QPen(QColor(255, 255, 255)))
-        text_rect = QRectF(-30, -10, 60, 20)
+        text_rect = QRectF(-40, -10, 80, 20)
         painter.drawText(text_rect, Qt.AlignCenter, self.node.hostname)
     
     def mouseDoubleClickEvent(self, event):
@@ -326,13 +392,24 @@ class FabricCanvas(QGraphicsView):
                     tgt_id = link_node.link_data.target_node_id
                     
                     if src_id in self.fabric_nodes and tgt_id in self.fabric_nodes:
-                        # Source to Link
-                        wire1 = ConnectionWire(self.fabric_nodes[src_id], link_node)
+                        src_node = self.fabric_nodes[src_id]
+                        tgt_node = self.fabric_nodes[tgt_id]
+                        
+                        # Source node output port to Link node input port
+                        wire1 = ConnectionWire(
+                            src_node, link_node,
+                            from_port=src_node.output_port_right,
+                            to_port=link_node.input_port_left
+                        )
                         self.scene.addItem(wire1)
                         self.wires.append(wire1)
                         
-                        # Link to Target
-                        wire2 = ConnectionWire(link_node, self.fabric_nodes[tgt_id])
+                        # Link node output port to Target node input port
+                        wire2 = ConnectionWire(
+                            link_node, tgt_node,
+                            from_port=link_node.output_port_right,
+                            to_port=tgt_node.input_port_left
+                        )
                         self.scene.addItem(wire2)
                         self.wires.append(wire2)
             
