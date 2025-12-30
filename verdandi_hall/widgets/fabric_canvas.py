@@ -770,9 +770,10 @@ class FabricCanvas(QGraphicsView):
         # Get selected hub node from parent widget
         hub_node_id = None
         hub_node_name = "unknown"
-        if hasattr(self.parent_widget, 'hub_node_combo'):
-            hub_node_id = self.parent_widget.hub_node_combo.currentData()
-            hub_node_name = self.parent_widget.hub_node_combo.currentText()
+        parent = self.parentWidget()
+        if parent and hasattr(parent, 'hub_node_combo'):
+            hub_node_id = parent.hub_node_combo.currentData()
+            hub_node_name = parent.hub_node_combo.currentText()
         
         if not hub_node_id:
             QMessageBox.warning(None, "No Hub Selected", "Please select a hub node from the dropdown above the canvas.")
