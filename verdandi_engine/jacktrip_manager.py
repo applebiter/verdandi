@@ -133,8 +133,9 @@ class JackTripManager:
             "-n", str(channels),
             "--clientname", jack_client_name,
             "--udprt",  # Use UDP with real-time thread
-            "-b", str(buffer_size),  # Buffer size (queue buffer length)
-            # Note: JackTrip doesn't have a sample rate flag - it uses JACK's sample rate
+            "-F", str(buffer_size),  # JACK buffer size
+            "-q", "4",  # Queue buffer length (4 packets default)
+            # Note: JackTrip uses JACK's sample rate automatically
         ]
         
         # Add port if non-default
