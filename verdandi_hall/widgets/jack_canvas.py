@@ -573,6 +573,9 @@ class GraphCanvas(QGraphicsView):
         self._temp_start_port = start_port
         self._temp_start_is_output = is_output
         
+        # Set crosshair cursor during drag
+        self.setCursor(Qt.CrossCursor)
+        
         # Create temp line
         self._temp_connection_item = QGraphicsLineItem()
         self._temp_connection_item.setPen(QPen(QColor(255, 255, 0, 180), 3, Qt.DashLine))
@@ -590,6 +593,9 @@ class GraphCanvas(QGraphicsView):
     
     def end_connection_drag(self, end_port: Optional[str], end_is_output: bool):
         """Complete or cancel the connection drag."""
+        # Restore arrow cursor
+        self.setCursor(Qt.ArrowCursor)
+        
         # Remove temp line
         if self._temp_connection_item:
             self.scene.removeItem(self._temp_connection_item)

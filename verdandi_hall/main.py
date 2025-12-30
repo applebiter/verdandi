@@ -137,12 +137,20 @@ class VerdandiHall(QMainWindow):
         
     def _create_fabric_tab(self):
         """Create the Fabric graph canvas tab."""
-        return FabricCanvasWidget(self.config, self.db, parent=self)
+        return FabricCanvasWidget(self.config, self.db, jack_manager=None, parent=self)
         
     def _init_fabric_tab(self):
         """Initialize fabric tab after database is ready."""
         if self.db:
             self.fabric_widget = self._create_fabric_tab()
+            # Set JACK manager if already initialized
+            if hasattr(self, 'jack_manager') and self.jack_manager:
+                self.fabric_widget.jack_manager = self.jack_manager
+                self.fabric_widget.sample_rate = self.jack_manager.get_sample_rate()
+                self.fabric_widget.buffer_size = self.jack_manager.get_buffer_size()
+                # Update the display labels
+                self.fabric_widget.sample_rate_label.setText(f"Sample Rate: {self.fabric_widget.sample_rate} Hz")
+                self.fabric_widget.buffer_size_label.setText(f"Buffer Size: {self.fabric_widget.buffer_size} frames")
             # Connect signals
             self.fabric_widget.canvas.node_double_clicked.connect(self._on_fabric_node_clicked)
             # Replace placeholder with actual widget
@@ -157,17 +165,23 @@ class VerdandiHall(QMainWindow):
             self.status_bar.showMessage("✓ Database connected", 3000)
         except Exception as e:
             self.status_bar.showMessage(f"✗ Database error: {e}")
-            logger.error("database_connection_failed", error=str(e))
+            logger.error(f"database_connection_failed: {e}")
             
     def _init_jack(self):
         """Initialize JACK client connection."""
         try:
             self.jack_manager = JackClientManager("verdandi_hall")
             self.jack_canvas.set_jack_manager(self.jack_manager)
+            # Update fabric widget with JACK settings if it exists
+            if hasattr(self, 'fabric_widget') and self.fabric_widget:
+                self.fabric_widget.jack_manager = self.jack_manager
+                if hasattr(self.fabric_widget, 'sample_rate'):
+                    self.fabric_widget.sample_rate = self.jack_manager.get_sample_rate()
+                    self.fabric_widget.buffer_size = self.jack_manager.get_buffer_size()
             self.status_bar.showMessage("✓ JACK connected", 3000)
         except Exception as e:
             self.status_bar.showMessage(f"✗ JACK error: {e}")
-            logger.error("jack_connection_failed", error=str(e))
+            logger.error(f"jack_connection_failed: {e}")
             
     def _refresh_status(self):
         """Refresh the status information."""

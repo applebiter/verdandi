@@ -17,10 +17,11 @@ from dataclasses import dataclass
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGraphicsView, QGraphicsScene,
     QGraphicsItem, QGraphicsEllipseItem, QGraphicsPolygonItem,
-    QGraphicsLineItem, QPushButton, QLabel, QMenu, QInputDialog, QMessageBox
+    QGraphicsLineItem, QPushButton, QLabel, QMenu, QInputDialog, QMessageBox,
+    QComboBox
 )
 from PySide6.QtCore import Qt, QPointF, QRectF, QTimer, Signal
-from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QPolygonF, QAction
+from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont, QPolygonF, QAction, QPainterPath
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
@@ -50,6 +51,8 @@ class LinkNodeData:
     sample_rate: int
     buffer_size: int
     status: str
+    send_channels: int = 2  # Channels to send
+    receive_channels: int = 2  # Channels to receive
     # Connections
     source_node_id: Optional[str] = None  # For P2P: client node
     target_node_id: Optional[str] = None  # For P2P: server node
@@ -60,11 +63,10 @@ class LinkNodeData:
 class ConnectionPort(QGraphicsEllipseItem):
     """Visual connection port on a node."""
     
-    def __init__(self, parent_item, port_type: str, angle: float = 0):
+    def __init__(self, parent_item, is_output: bool):
         super().__init__(-8, -8, 16, 16)
         self.parent_item = parent_item
-        self.port_type = port_type  # "input" or "output"
-        self.angle = angle
+        self.is_output = is_output
         
         self.setBrush(QBrush(QColor(200, 200, 200)))
         self.setPen(QPen(QColor(100, 100, 100), 2))
@@ -73,12 +75,12 @@ class ConnectionPort(QGraphicsEllipseItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CrossCursor)
         
-        # Position based on angle
+        # Position: output on right, input on left
         radius = 45 if isinstance(parent_item, FabricNodeItem) else 35
-        import math
-        x = radius * math.cos(math.radians(angle))
-        y = radius * math.sin(math.radians(angle))
-        self.setPos(x, y)
+        if is_output:
+            self.setPos(radius, 0)  # Right side
+        else:
+            self.setPos(-radius, 0)  # Left side
     
     def hoverEnterEvent(self, event):
         self.setBrush(QBrush(QColor(255, 200, 100)))
@@ -89,42 +91,117 @@ class ConnectionPort(QGraphicsEllipseItem):
         self.setBrush(QBrush(QColor(200, 200, 200)))
         self.setPen(QPen(QColor(100, 100, 100), 2))
         super().hoverLeaveEvent(event)
-
-
-class ConnectionWire(QGraphicsLineItem):
-    """Visual wire connecting nodes via their ports."""
     
-    def __init__(self, from_item, to_item, from_port=None, to_port=None):
+    def mousePressEvent(self, event):
+        """Start dragging a connection from this port."""
+        if event.button() == Qt.LeftButton:
+            # Get the canvas view
+            if self.scene() and self.scene().views():
+                view = self.scene().views()[0]
+                if hasattr(view, 'start_connection_drag'):
+                    start_pos = self.sceneBoundingRect().center()
+                    view.start_connection_drag(start_pos, self.parent_item, self.is_output)
+                    event.accept()
+                    return
+        super().mousePressEvent(event)
+
+
+class ConnectionWire(QGraphicsItem):
+    """Curved wire connecting nodes via their ports."""
+    
+    def __init__(self, from_item, to_item, from_port=None, to_port=None, parent_canvas=None):
         super().__init__()
         self.from_item = from_item
         self.to_item = to_item
         self.from_port = from_port
         self.to_port = to_port
-        
-        pen = QPen(QColor(150, 150, 150), 3)
-        self.setPen(pen)
-        self.update_position()
+        self.parent_canvas = parent_canvas
+        self.path = QPainterPath()
+        self.is_hovered = False
+        self.setZValue(-1)  # Behind nodes
+        self.setAcceptHoverEvents(True)
+        self.setFlag(QGraphicsItem.ItemIsSelectable, True)
+        self.setFlag(QGraphicsItem.ItemIsFocusable, True)
+        self.update_path()
     
-    def update_position(self):
-        """Update line position based on connected items and ports."""
-        if self.from_port and self.to_port:
-            # Connect port to port
-            p1 = self.from_port.sceneBoundingRect().center()
-            p2 = self.to_port.sceneBoundingRect().center()
-        elif self.from_port:
-            # Connect port to item center
-            p1 = self.from_port.sceneBoundingRect().center()
-            p2 = self.to_item.sceneBoundingRect().center()
-        elif self.to_port:
-            # Connect item center to port
-            p1 = self.from_item.sceneBoundingRect().center()
-            p2 = self.to_port.sceneBoundingRect().center()
+    def boundingRect(self):
+        return self.path.boundingRect().adjusted(-5, -5, 5, 5)
+    
+    def paint(self, painter, option, widget):
+        # Different colors for different states
+        if self.isSelected():
+            color = QColor(255, 100, 100)  # Red when selected
+            width = 3
+        elif self.is_hovered:
+            color = QColor(255, 255, 100)  # Bright yellow on hover
+            width = 3
         else:
-            # Connect item centers (fallback)
-            p1 = self.from_item.sceneBoundingRect().center()
-            p2 = self.to_item.sceneBoundingRect().center()
+            color = QColor(255, 200, 100)  # Orange normally
+            width = 2
+        painter.setPen(QPen(color, width))
+        painter.drawPath(self.path)
+    
+    def hoverEnterEvent(self, event):
+        """Change color when mouse hovers over wire."""
+        self.is_hovered = True
+        self.update()
+        super().hoverEnterEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        """Restore color when mouse leaves wire."""
+        self.is_hovered = False
+        self.update()
+        super().hoverLeaveEvent(event)
+    
+    def keyPressEvent(self, event):
+        """Handle Delete key to remove wire."""
+        if event.key() == Qt.Key_Delete and self.parent_canvas:
+            self.parent_canvas.delete_wire(self)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+    
+    def mousePressEvent(self, event):
+        """Right-click to delete connection (matches JACK graph behavior)."""
+        if event.button() == Qt.RightButton:
+            if self.parent_canvas:
+                self.parent_canvas.delete_wire(self)
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+    
+    def update_path(self):
+        """Update curved path based on connected items and ports."""
+        # Get start and end positions
+        if self.from_port and self.to_port:
+            start_pos = self.from_port.sceneBoundingRect().center()
+            end_pos = self.to_port.sceneBoundingRect().center()
+        elif self.from_port:
+            start_pos = self.from_port.sceneBoundingRect().center()
+            end_pos = self.to_item.sceneBoundingRect().center()
+        elif self.to_port:
+            start_pos = self.from_item.sceneBoundingRect().center()
+            end_pos = self.to_port.sceneBoundingRect().center()
+        else:
+            start_pos = self.from_item.sceneBoundingRect().center()
+            end_pos = self.to_item.sceneBoundingRect().center()
         
-        self.setLine(p1.x(), p1.y(), p2.x(), p2.y())
+        # MUST call prepareGeometryChange BEFORE modifying geometry
+        self.prepareGeometryChange()
+        
+        self.path = QPainterPath()
+        self.path.moveTo(start_pos)
+        
+        # Bezier curve for smooth connection
+        dist = abs(end_pos.x() - start_pos.x()) * 0.5
+        self.path.cubicTo(
+            start_pos.x() + dist, start_pos.y(),
+            end_pos.x() - dist, end_pos.y(),
+            end_pos.x(), end_pos.y()
+        )
+        
+        # Force redraw
+        self.update()
 
 
 class LinkNodeItem(QGraphicsPolygonItem):
@@ -171,11 +248,36 @@ class LinkNodeItem(QGraphicsPolygonItem):
         
         self.setAcceptHoverEvents(True)
         
-        # Add connection ports at cardinal points
-        self.input_port_left = ConnectionPort(self, "input", 180)   # Left
-        self.input_port_top = ConnectionPort(self, "input", 270)    # Top
-        self.output_port_right = ConnectionPort(self, "output", 0)  # Right
-        self.output_port_bottom = ConnectionPort(self, "output", 90) # Bottom
+        # Add connection ports: input on left, output on right
+        self.input_port = ConnectionPort(self, is_output=False)
+        self.output_port = ConnectionPort(self, is_output=True)
+    
+    def itemChange(self, change, value):
+        """Update wire positions when node moves and save position to database."""
+        if change == QGraphicsItem.ItemPositionHasChanged and self.parent_canvas:
+            # Update all wires connected to this node
+            for wire in self.parent_canvas.wires:
+                if wire.from_item == self or wire.to_item == self:
+                    wire.update_path()
+            
+            # Save position to database
+            if self.parent_canvas.database:
+                try:
+                    with self.parent_canvas.database.get_session() as session:
+                        from verdandi_codex.models.fabric import FabricLink
+                        import json
+                        
+                        link = session.query(FabricLink).filter_by(link_id=self.link_data.link_id).first()
+                        if link:
+                            params = json.loads(link.params_json) if isinstance(link.params_json, str) else link.params_json or {}
+                            params['x'] = value.x()
+                            params['y'] = value.y()
+                            link.params_json = json.dumps(params)
+                            session.commit()
+                except Exception:
+                    # Don't log every move, too noisy
+                    pass
+        return super().itemChange(change, value)
     
     def paint(self, painter, option, widget):
         super().paint(painter, option, widget)
@@ -186,10 +288,12 @@ class LinkNodeItem(QGraphicsPolygonItem):
         text_rect = QRectF(-25, -8, 50, 16)
         painter.drawText(text_rect, Qt.AlignCenter, self.link_data.mode)
         
-        # Draw channel count below
+        # Draw send→receive channel count below
         painter.setFont(QFont("Sans", 7))
-        text_rect2 = QRectF(-25, 5, 50, 12)
-        painter.drawText(text_rect2, Qt.AlignCenter, f"{self.link_data.channels}ch")
+        text_rect2 = QRectF(-30, 5, 60, 12)
+        send_ch = getattr(self.link_data, 'send_channels', self.link_data.channels)
+        recv_ch = getattr(self.link_data, 'receive_channels', self.link_data.channels)
+        painter.drawText(text_rect2, Qt.AlignCenter, f"{send_ch}→{recv_ch}ch")
     
     def contextMenuEvent(self, event):
         """Show context menu for configuration."""
@@ -239,11 +343,18 @@ class FabricNodeItem(QGraphicsEllipseItem):
                   f"Double-click: Open JACK graph")
         self.setToolTip(tooltip)
         
-        # Add connection ports around the perimeter
-        self.output_port_right = ConnectionPort(self, "output", 0)    # Right
-        self.output_port_bottom = ConnectionPort(self, "output", 90)  # Bottom
-        self.input_port_left = ConnectionPort(self, "input", 180)     # Left
-        self.input_port_top = ConnectionPort(self, "input", 270)      # Top
+        # Add connection ports: input on left, output on right
+        self.input_port = ConnectionPort(self, is_output=False)
+        self.output_port = ConnectionPort(self, is_output=True)
+    
+    def itemChange(self, change, value):
+        """Update wire positions when node moves."""
+        if change == QGraphicsItem.ItemPositionHasChanged and self.parent_canvas:
+            # Update all wires connected to this node
+            for wire in self.parent_canvas.wires:
+                if wire.from_item == self or wire.to_item == self:
+                    wire.update_path()
+        return super().itemChange(change, value)
     
     def paint(self, painter, option, widget):
         super().paint(painter, option, widget)
@@ -271,13 +382,14 @@ class FabricCanvas(QGraphicsView):
         self.config = config
         self.database = database
         
-        self.scene = QGraphicsScene()
+        self.scene = QGraphicsScene(-2000, -2000, 4000, 4000)
         self.setScene(self.scene)
         
         # Configure view
         self.setRenderHint(QPainter.Antialiasing)
-        self.setDragMode(QGraphicsView.RubberBandDrag)
+        self.setDragMode(QGraphicsView.ScrollHandDrag)
         self.setBackgroundBrush(QBrush(QColor(30, 30, 30)))
+        self.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         
         # Storage
         self.fabric_nodes: Dict[str, FabricNodeItem] = {}
@@ -289,7 +401,225 @@ class FabricCanvas(QGraphicsView):
         self.refresh_timer.timeout.connect(self.refresh)
         self.refresh_timer.start(5000)
         
+        # Connection dragging state
+        self._temp_connection_item = None
+        self._temp_start_pos = None
+        self._temp_start_item = None
+        self._temp_start_is_output = False
+        
         self.refresh()
+    
+    def wheelEvent(self, event):
+        """Zoom in/out with mouse wheel."""
+        factor = 1.25 if event.angleDelta().y() > 0 else 0.8
+        self.scale(factor, factor)
+    
+    def start_connection_drag(self, start_pos: QPointF, start_item, is_output: bool):
+        """Start dragging a temporary connection line."""
+        from PySide6.QtWidgets import QGraphicsLineItem
+        self._temp_start_pos = start_pos
+        self._temp_start_item = start_item
+        self._temp_start_is_output = is_output
+        
+        # Set crosshair cursor during drag
+        self.setCursor(Qt.CrossCursor)
+        
+        # Create temp line
+        self._temp_connection_item = QGraphicsLineItem()
+        self._temp_connection_item.setPen(QPen(QColor(255, 255, 0, 180), 3, Qt.DashLine))
+        self._temp_connection_item.setLine(start_pos.x(), start_pos.y(), start_pos.x(), start_pos.y())
+        self._temp_connection_item.setZValue(-2)
+        self.scene.addItem(self._temp_connection_item)
+    
+    def mouseMoveEvent(self, event):
+        """Update the temporary connection line."""
+        if self._temp_connection_item and self._temp_start_pos:
+            current_pos = self.mapToScene(event.pos())
+            self._temp_connection_item.setLine(
+                self._temp_start_pos.x(), self._temp_start_pos.y(),
+                current_pos.x(), current_pos.y()
+            )
+        super().mouseMoveEvent(event)
+    
+    def mouseReleaseEvent(self, event):
+        """Complete or cancel the connection drag."""
+        if self._temp_connection_item:
+            # Restore arrow cursor
+            self.setCursor(Qt.ArrowCursor)
+            
+            # Remove temp line
+            self.scene.removeItem(self._temp_connection_item)
+            self._temp_connection_item = None
+            
+            # Find what we released over
+            release_pos = self.mapToScene(event.pos())
+            items = self.scene.items(release_pos)
+            
+            target_item = None
+            target_is_output = False
+            
+            for item in items:
+                if isinstance(item, ConnectionPort) and item.parent_item != self._temp_start_item:
+                    target_item = item.parent_item
+                    target_is_output = item.is_output
+                    break
+            
+            # Create connection if valid (output to input or input to output)
+            if target_item and self._temp_start_is_output != target_is_output:
+                if self._temp_start_is_output:
+                    # Dragged from output to input
+                    self._create_wire(self._temp_start_item, target_item)
+                else:
+                    # Dragged from input to output
+                    self._create_wire(target_item, self._temp_start_item)
+            
+            # Clear temp state AFTER using it
+            self._temp_start_pos = None
+            self._temp_start_item = None
+            event.accept()
+            return
+        
+        super().mouseReleaseEvent(event)
+    
+    def _create_wire(self, from_item, to_item):
+        """Create a wire between two items."""
+        # Check if wire already exists
+        for wire in self.wires:
+            if ((wire.from_item == from_item and wire.to_item == to_item) or
+                (wire.from_item == to_item and wire.to_item == from_item)):
+                logger.info("Wire already exists between these items")
+                return
+        
+        # Create new wire
+        wire = ConnectionWire(
+            from_item, to_item,
+            from_port=from_item.output_port if hasattr(from_item, 'output_port') else None,
+            to_port=to_item.input_port if hasattr(to_item, 'input_port') else None,
+            parent_canvas=self
+        )
+        self.scene.addItem(wire)
+        self.wires.append(wire)
+        logger.info(f"Created wire between nodes")
+        
+        # If one of the items is a LinkNodeItem, update its connection in the database
+        self._update_link_connections(from_item, to_item)
+        
+        # If one of the items is a LinkNodeItem, update its connection in the database
+        self._update_link_connections(from_item, to_item)
+    
+    def _update_link_connections(self, from_item, to_item):
+        """Update link node connections in database when wires are created."""
+        link_node = None
+        fabric_node = None
+        is_output_connection = False  # Is fabric_node connected to link's output?
+        
+        # Determine which item is the link node and which is the fabric node
+        if isinstance(from_item, LinkNodeItem) and isinstance(to_item, FabricNodeItem):
+            link_node = from_item
+            fabric_node = to_item
+            is_output_connection = True  # Link output -> Fabric input
+        elif isinstance(from_item, FabricNodeItem) and isinstance(to_item, LinkNodeItem):
+            link_node = to_item
+            fabric_node = from_item
+            is_output_connection = False  # Fabric output -> Link input
+        
+        if not link_node or not fabric_node:
+            return  # Not a link-fabric connection
+        
+        # Update the link in the database
+        try:
+            with self.database.get_session() as session:
+                from verdandi_codex.models.fabric import FabricLink
+                import json
+                
+                link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
+                if not link:
+                    logger.error(f"Link {link_node.link_data.link_id} not found in database")
+                    return
+                
+                # Load params
+                params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
+                
+                # Update connection based on direction
+                if is_output_connection:
+                    # Link output -> Fabric node input (link is sending TO fabric_node)
+                    link.node_b_id = fabric_node.node.node_id
+                    params['target_node_id'] = fabric_node.node.node_id
+                    logger.info(f"Set link {link_node.link_data.link_id[:8]} output to {fabric_node.node.hostname}")
+                else:
+                    # Fabric node output -> Link input (fabric_node is sending TO link)
+                    link.node_a_id = fabric_node.node.node_id
+                    params['source_node_id'] = fabric_node.node.node_id
+                    logger.info(f"Set link {link_node.link_data.link_id[:8]} input from {fabric_node.node.hostname}")
+                
+                # Check if both ends are now connected
+                if 'source_node_id' in params and 'target_node_id' in params:
+                    # Both connected, remove _unconnected flag and set DESIRED_UP
+                    params.pop('_unconnected', None)
+                    link.status = "DESIRED_UP"
+                    logger.info(f"Link {link_node.link_data.link_id[:8]} fully connected, status -> DESIRED_UP")
+                
+                link.params_json = json.dumps(params)
+                session.commit()
+        except Exception as e:
+            logger.error(f"Failed to update link connections: {e}", exc_info=True)
+    
+    def delete_wire(self, wire: ConnectionWire):
+        """Delete a wire and update link status in database."""
+        # Determine if this involves a link node
+        link_node = None
+        fabric_node = None
+        is_output_connection = False
+        
+        if isinstance(wire.from_item, LinkNodeItem) and isinstance(wire.to_item, FabricNodeItem):
+            link_node = wire.from_item
+            fabric_node = wire.to_item
+            is_output_connection = True
+        elif isinstance(wire.from_item, FabricNodeItem) and isinstance(wire.to_item, LinkNodeItem):
+            link_node = wire.to_item
+            fabric_node = wire.from_item
+            is_output_connection = False
+        
+        # Remove wire from scene
+        self.scene.removeItem(wire)
+        if wire in self.wires:
+            self.wires.remove(wire)
+        
+        # Update link status if this was a link connection
+        if link_node and fabric_node:
+            try:
+                with self.database.get_session() as session:
+                    from verdandi_codex.models.fabric import FabricLink
+                    import json
+                    
+                    link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
+                    if not link:
+                        logger.error(f"Link {link_node.link_data.link_id} not found in database")
+                        return
+                    
+                    # Load params
+                    params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
+                    
+                    # Remove connection based on direction
+                    if is_output_connection:
+                        # Removing link output connection
+                        params.pop('target_node_id', None)
+                        logger.info(f"Removed link {link_node.link_data.link_id[:8]} output connection")
+                    else:
+                        # Removing link input connection
+                        params.pop('source_node_id', None)
+                        logger.info(f"Removed link {link_node.link_data.link_id[:8]} input connection")
+                    
+                    # If either end is now disconnected, mark as unconnected and DESIRED_DOWN
+                    if 'source_node_id' not in params or 'target_node_id' not in params:
+                        params['_unconnected'] = True
+                        link.status = "DESIRED_DOWN"
+                        logger.info(f"Link {link_node.link_data.link_id[:8]} disconnected, status -> DESIRED_DOWN")
+                    
+                    link.params_json = json.dumps(params)
+                    session.commit()
+            except Exception as e:
+                logger.error(f"Failed to update link after wire deletion: {e}", exc_info=True)
     
     def refresh(self):
         """Refresh from database."""
@@ -355,10 +685,17 @@ class FabricCanvas(QGraphicsView):
                     # Determine mode (default P2P for now)
                     mode = params.get('mode', 'P2P')
                     
+                    # Get send/receive channels, fallback to symmetric 'channels' for backwards compat
+                    channels = params.get('channels', 2)
+                    send_channels = params.get('send_channels', channels)
+                    receive_channels = params.get('receive_channels', channels)
+                    
                     link_data = LinkNodeData(
                         link_id=link_id,
                         mode=mode,
-                        channels=params.get('channels', 2),
+                        channels=channels,
+                        send_channels=send_channels,
+                        receive_channels=receive_channels,
                         sample_rate=params.get('sample_rate', 48000),
                         buffer_size=params.get('buffer_size', 128),
                         status=str(link.status),
@@ -366,15 +703,18 @@ class FabricCanvas(QGraphicsView):
                         target_node_id=str(link.node_b_id) if mode == 'P2P' else None
                     )
                     
-                    # Position between connected nodes
+                    # Position between connected nodes or use saved position
                     if link_data.source_node_id in self.fabric_nodes and link_data.target_node_id in self.fabric_nodes:
                         n1 = self.fabric_nodes[link_data.source_node_id]
                         n2 = self.fabric_nodes[link_data.target_node_id]
                         x = (n1.pos().x() + n2.pos().x()) / 2
                         y = (n1.pos().y() + n2.pos().y()) / 2
                     else:
-                        x = 400
-                        y = 300
+                        # Use saved position from params, or place to the right with vertical stagger
+                        # Fabric nodes are typically at 100-600 on x-axis, so place links at 800+
+                        num_links = len(self.link_nodes)
+                        x = params.get('x', 800 + (num_links % 3) * 200)  # 3 columns
+                        y = params.get('y', 100 + (num_links // 3) * 200)  # Rows of 200px
                     
                     item = LinkNodeItem(link_data, x, y, parent_canvas=self)
                     self.scene.addItem(item)
@@ -385,30 +725,37 @@ class FabricCanvas(QGraphicsView):
                 self.scene.removeItem(wire)
             self.wires.clear()
             
-            # Create wires for P2P links
+            # Create wires for P2P links (even partially connected ones)
             for link_node in self.link_nodes.values():
                 if link_node.link_data.mode == 'P2P':
-                    src_id = link_node.link_data.source_node_id
-                    tgt_id = link_node.link_data.target_node_id
-                    
-                    if src_id in self.fabric_nodes and tgt_id in self.fabric_nodes:
-                        src_node = self.fabric_nodes[src_id]
-                        tgt_node = self.fabric_nodes[tgt_id]
-                        
-                        # Source node output port to Link node input port
-                        wire1 = ConnectionWire(
-                            src_node, link_node,
-                            from_port=src_node.output_port_right,
-                            to_port=link_node.input_port_left
-                        )
-                        self.scene.addItem(wire1)
-                        self.wires.append(wire1)
-                        
-                        # Link node output port to Target node input port
-                        wire2 = ConnectionWire(
-                            link_node, tgt_node,
-                            from_port=link_node.output_port_right,
-                            to_port=tgt_node.input_port_left
+                    # Get connection info from database
+                    with self.database.get_session() as session:
+                        link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
+                        if link:
+                            params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
+                            src_id = params.get('source_node_id')
+                            tgt_id = params.get('target_node_id')
+                            
+                            # Create wire from source to link input (if source is connected)
+                            if src_id and src_id in self.fabric_nodes:
+                                src_node = self.fabric_nodes[src_id]
+                                wire1 = ConnectionWire(
+                                    src_node, link_node,
+                                    from_port=src_node.output_port,
+                                    to_port=link_node.input_port,
+                                    parent_canvas=self
+                                )
+                                self.scene.addItem(wire1)
+                                self.wires.append(wire1)
+                            
+                            # Create wire from link output to target (if target is connected)
+                            if tgt_id and tgt_id in self.fabric_nodes:
+                                tgt_node = self.fabric_nodes[tgt_id]
+                                wire2 = ConnectionWire(
+                                    link_node, tgt_node,
+                                    from_port=link_node.output_port,
+                                    to_port=tgt_node.input_port,
+                            parent_canvas=self
                         )
                         self.scene.addItem(wire2)
                         self.wires.append(wire2)
@@ -418,22 +765,206 @@ class FabricCanvas(QGraphicsView):
     
     def add_link_node(self, x: float, y: float):
         """Add a new link node at position."""
+        from PySide6.QtWidgets import QDialog, QFormLayout, QSpinBox, QComboBox, QDialogButtonBox, QRadioButton, QButtonGroup, QVBoxLayout
+        
+        # Check for hub/p2p exclusivity
+        existing_mode = None
+        try:
+            with self.database.get_session() as session:
+                from verdandi_codex.models.fabric import FabricLink
+                import json
+                links = session.query(FabricLink).all()
+                for link in links:
+                    params = json.loads(link.params_json) if isinstance(link.params_json, str) else link.params_json or {}
+                    mode = params.get('mode')
+                    if mode:
+                        existing_mode = mode
+                        break
+        except Exception as e:
+            logger.error(f"Failed to check existing links: {e}", exc_info=True)
+        
+        # Show configuration dialog
+        dialog = QDialog()
+        dialog.setWindowTitle("Add Link Node")
+        layout = QFormLayout(dialog)
+        
+        # Mode selection with exclusivity check
+        mode_layout = QVBoxLayout()
+        mode_group = QButtonGroup(dialog)
+        p2p_radio = QRadioButton("P2P (Point-to-Point)")
+        hub_radio = QRadioButton("HUB (Hub Server)")
+        
+        if existing_mode == "HUB":
+            p2p_radio.setEnabled(False)
+            hub_radio.setChecked(True)
+            mode_layout.addWidget(QLabel("⚠ HUB mode already in use - P2P disabled"))
+        elif existing_mode == "P2P":
+            hub_radio.setEnabled(False)
+            p2p_radio.setChecked(True)
+            mode_layout.addWidget(QLabel("⚠ P2P mode already in use - HUB disabled"))
+        else:
+            p2p_radio.setChecked(True)
+        
+        mode_group.addButton(p2p_radio)
+        mode_group.addButton(hub_radio)
+        mode_layout.addWidget(p2p_radio)
+        mode_layout.addWidget(hub_radio)
+        layout.addRow("Mode:", mode_layout)
+        
+        # Hub Node Selection (only shown for Hub mode)
+        hub_node_label = QLabel("Hub Node:")
+        hub_node_combo = QComboBox()
+        
+        # Populate with available nodes
+        hub_nodes = {}
+        try:
+            with self.database.get_session() as session:
+                from verdandi_codex.models.identity import Node
+                nodes = session.query(Node).all()
+                for node in nodes:
+                    display = f"{node.hostname} ({node.display_name or 'unnamed'})"
+                    hub_node_combo.addItem(display, str(node.node_id))
+                    hub_nodes[str(node.node_id)] = node.hostname
+        except Exception as e:
+            logger.error(f"Failed to load nodes: {e}", exc_info=True)
+        
+        layout.addRow(hub_node_label, hub_node_combo)
+        
+        # Show/hide hub selection based on mode
+        def update_hub_visibility():
+            is_hub = hub_radio.isChecked()
+            hub_node_label.setVisible(is_hub)
+            hub_node_combo.setVisible(is_hub)
+        
+        p2p_radio.toggled.connect(update_hub_visibility)
+        hub_radio.toggled.connect(update_hub_visibility)
+        update_hub_visibility()  # Set initial state
+        
+        # Hub node selection (only shown for Hub mode)
+        hub_node_label = QLabel("Hub Node:")
+        hub_node_combo = QComboBox()
+        hub_node_combo.setEnabled(False)
+        
+        # Load available nodes
+        try:
+            with self.database.get_session() as session:
+                from verdandi_codex.models.identity import Node
+                nodes = session.query(Node).all()
+                for node in nodes:
+                    hub_node_combo.addItem(f"{node.hostname} ({node.ip_last_seen})", userData=str(node.node_id))
+        except Exception as e:
+            logger.error(f"Failed to load nodes: {e}", exc_info=True)
+        
+        layout.addRow(hub_node_label, hub_node_combo)
+        
+        # Enable/disable hub node selector based on mode
+        def on_mode_changed():
+            is_hub = hub_radio.isChecked()
+            hub_node_combo.setEnabled(is_hub)
+            hub_node_label.setEnabled(is_hub)
+        
+        p2p_radio.toggled.connect(on_mode_changed)
+        hub_radio.toggled.connect(on_mode_changed)
+        on_mode_changed()  # Set initial state
+        
+        # Send Channels
+        send_channels_spin = QSpinBox()
+        send_channels_spin.setRange(1, 8)
+        send_channels_spin.setValue(2)
+        layout.addRow("Send Channels:", send_channels_spin)
+        
+        # Receive Channels
+        receive_channels_spin = QSpinBox()
+        receive_channels_spin.setRange(1, 8)
+        receive_channels_spin.setValue(2)
+        layout.addRow("Receive Channels:", receive_channels_spin)
+        
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        # Get JACK audio settings from parent widget
+        sample_rate = 48000
+        buffer_size = 256
+        if hasattr(self.parent(), 'sample_rate'):
+            sample_rate = self.parent().sample_rate
+        if hasattr(self.parent(), 'buffer_size'):
+            buffer_size = self.parent().buffer_size
+        
+        # Generate link ID
         link_id = str(uuid.uuid4())
+        mode = "HUB" if hub_radio.isChecked() else "P2P"
+        send_channels = send_channels_spin.value()
+        receive_channels = receive_channels_spin.value()
         
-        link_data = LinkNodeData(
-            link_id=link_id,
-            mode="P2P",
-            channels=2,
-            sample_rate=48000,
-            buffer_size=256,
-            status="UNCONFIGURED"
-        )
+        # Store in database
+        try:
+            with self.database.get_session() as session:
+                from verdandi_codex.models.fabric import FabricLink, FabricGraph, LinkType
+                import json
+                
+                # Get or create default graph
+                graph = session.query(FabricGraph).filter_by(name="Home").first()
+                if not graph:
+                    graph = FabricGraph(name="Home", version=1)
+                    session.add(graph)
+                    session.flush()  # Get graph_id
+                
+                # Create link with null node connections (user will connect via drag)
+                # Use local node as both endpoints for now (required by DB, but marked as unconnected)
+                from verdandi_codex.models.identity import Node
+                import socket
+                
+                local_hostname = socket.gethostname()
+                local_node = session.query(Node).filter_by(hostname=local_hostname).first()
+                if not local_node:
+                    # Fallback to first node if hostname doesn't match
+                    local_node = session.query(Node).first()
+                if not local_node:
+                    logger.error("No nodes found in database")
+                    return
+                
+                # For Hub mode, use selected hub node
+                hub_node_id = None
+                if mode == "HUB":
+                    hub_node_id = hub_node_combo.currentData()
+                    if not hub_node_id:
+                        logger.error("No hub node selected")
+                        return
+                
+                link = FabricLink(
+                    link_id=link_id,
+                    graph_id=graph.graph_id,
+                    link_type=LinkType.AUDIO_JACKTRIP,
+                    node_a_id=local_node.node_id,
+                    node_b_id=local_node.node_id,
+                    status="DESIRED_DOWN",
+                    params_json=json.dumps({
+                        "mode": mode,
+                        "send_channels": send_channels,
+                        "receive_channels": receive_channels,
+                        "sample_rate": sample_rate,
+                        "buffer_size": buffer_size,
+                        "x": x,
+                        "y": y,
+                        "hub_node_id": hub_node_id,
+                        "_unconnected": True  # Mark as not yet configured
+                    })
+                )
+                session.add(link)
+                session.commit()
+                logger.info(f"Created link in database: {link_id[:8]}, {mode}, {send_channels}→{receive_channels}ch")
+        except Exception as e:
+            logger.error(f"Failed to create link: {e}", exc_info=True)
+            return
         
-        item = LinkNodeItem(link_data, x, y, parent_canvas=self)
-        self.scene.addItem(item)
-        self.link_nodes[link_id] = item
-        
-        logger.info(f"Added new link node: {link_id[:8]}")
+        # Refresh to show new link
+        self.refresh()
     
     def configure_link_node(self, link_node: LinkNodeItem):
         """Show configuration dialog for link node."""
@@ -449,23 +980,17 @@ class FabricCanvas(QGraphicsView):
         mode_combo.setCurrentText(link_node.link_data.mode)
         layout.addRow("Mode:", mode_combo)
         
-        # Channels
-        channels_spin = QSpinBox()
-        channels_spin.setRange(1, 8)
-        channels_spin.setValue(link_node.link_data.channels)
-        layout.addRow("Channels:", channels_spin)
+        # Send Channels
+        send_channels_spin = QSpinBox()
+        send_channels_spin.setRange(1, 8)
+        send_channels_spin.setValue(getattr(link_node.link_data, 'send_channels', link_node.link_data.channels))
+        layout.addRow("Send Channels:", send_channels_spin)
         
-        # Sample Rate
-        sample_rate_combo = QComboBox()
-        sample_rate_combo.addItems(["44100", "48000", "96000"])
-        sample_rate_combo.setCurrentText(str(link_node.link_data.sample_rate))
-        layout.addRow("Sample Rate:", sample_rate_combo)
-        
-        # Buffer Size
-        buffer_size_combo = QComboBox()
-        buffer_size_combo.addItems(["64", "128", "256", "512", "1024"])
-        buffer_size_combo.setCurrentText(str(link_node.link_data.buffer_size))
-        layout.addRow("Buffer Size:", buffer_size_combo)
+        # Receive Channels
+        receive_channels_spin = QSpinBox()
+        receive_channels_spin.setRange(1, 8)
+        receive_channels_spin.setValue(getattr(link_node.link_data, 'receive_channels', link_node.link_data.channels))
+        layout.addRow("Receive Channels:", receive_channels_spin)
         
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -474,15 +999,48 @@ class FabricCanvas(QGraphicsView):
         layout.addRow(buttons)
         
         if dialog.exec() == QDialog.Accepted:
+            # Get JACK audio settings from parent
+            sample_rate = link_node.link_data.sample_rate
+            buffer_size = link_node.link_data.buffer_size
+            if hasattr(self.parent(), 'sample_rate'):
+                sample_rate = self.parent().sample_rate
+            if hasattr(self.parent(), 'buffer_size'):
+                buffer_size = self.parent().buffer_size
+            
             # Update link node
             link_node.link_data.mode = mode_combo.currentText()
-            link_node.link_data.channels = channels_spin.value()
-            link_node.link_data.sample_rate = int(sample_rate_combo.currentText())
-            link_node.link_data.buffer_size = int(buffer_size_combo.currentText())
+            link_node.link_data.send_channels = send_channels_spin.value()
+            link_node.link_data.receive_channels = receive_channels_spin.value()
+            link_node.link_data.channels = send_channels_spin.value()  # Keep for backwards compat
+            link_node.link_data.sample_rate = sample_rate
+            link_node.link_data.buffer_size = buffer_size
             link_node.update()
             
+            # Update database
+            try:
+                with self.database.get_session() as session:
+                    from verdandi_codex.models.fabric import FabricLink
+                    import json
+                    
+                    link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
+                    if link:
+                        params = json.loads(link.params_json) if isinstance(link.params_json, str) else link.params_json or {}
+                        params.update({
+                            "mode": link_node.link_data.mode,
+                            "send_channels": link_node.link_data.send_channels,
+                            "receive_channels": link_node.link_data.receive_channels,
+                            "sample_rate": link_node.link_data.sample_rate,
+                            "buffer_size": link_node.link_data.buffer_size,
+                            "x": link_node.pos().x(),
+                            "y": link_node.pos().y()
+                        })
+                        link.params_json = json.dumps(params)
+                        session.commit()
+            except Exception as e:
+                logger.error(f"Failed to update link: {e}", exc_info=True)
+            
             logger.info(f"Configured link: {link_node.link_data.link_id[:8]}, "
-                       f"{link_node.link_data.mode}, {link_node.link_data.channels}ch")
+                       f"{link_node.link_data.mode}, {link_node.link_data.send_channels}→{link_node.link_data.receive_channels}ch")
     
     def delete_link_node(self, link_node: LinkNodeItem):
         """Delete a link node."""
@@ -494,21 +1052,72 @@ class FabricCanvas(QGraphicsView):
         
         if reply == QMessageBox.Yes:
             link_id = link_node.link_data.link_id
+            
+            # Remove connected wires
+            wires_to_remove = []
+            for wire in self.wires:
+                if wire.from_item == link_node or wire.to_item == link_node:
+                    wires_to_remove.append(wire)
+            
+            for wire in wires_to_remove:
+                self.scene.removeItem(wire)
+                self.wires.remove(wire)
+            
+            # Remove from scene and memory
             self.scene.removeItem(link_node)
             if link_id in self.link_nodes:
                 del self.link_nodes[link_id]
+            
+            # Delete from database
+            try:
+                with self.database.get_session() as session:
+                    from verdandi_codex.models.fabric import FabricLink
+                    link = session.query(FabricLink).filter_by(link_id=link_id).first()
+                    if link:
+                        session.delete(link)
+                        session.commit()
+                        logger.info(f"Deleted link from database: {link_id[:8]}")
+            except Exception as e:
+                logger.error(f"Failed to delete link from database: {e}", exc_info=True)
+            
             logger.info(f"Deleted link node: {link_id[:8]}")
 
 
 class FabricCanvasWidget(QWidget):
     """Widget containing the fabric canvas with controls."""
     
-    def __init__(self, config: VerdandiConfig, database: Database, parent=None):
+    def __init__(self, config: VerdandiConfig, database: Database, jack_manager=None, parent=None):
         super().__init__(parent)
         self.config = config
         self.database = database
+        self.jack_manager = jack_manager
         
         layout = QVBoxLayout(self)
+        
+        # Audio Settings Display - read-only, shows current JACK settings
+        settings_group = QHBoxLayout()
+        settings_group.addWidget(QLabel("<b>JACK Audio Settings:</b>"))
+        
+        # Get current JACK settings
+        sample_rate = 48000
+        buffer_size = 256
+        if jack_manager:
+            sample_rate = jack_manager.get_sample_rate()
+            buffer_size = jack_manager.get_buffer_size()
+        
+        # Create labels that can be updated later
+        self.sample_rate_label = QLabel(f"Sample Rate: {sample_rate} Hz")
+        self.buffer_size_label = QLabel(f"Buffer Size: {buffer_size} frames")
+        settings_group.addWidget(self.sample_rate_label)
+        settings_group.addWidget(self.buffer_size_label)
+        settings_group.addWidget(QLabel("<i>(Configure JACK server to change)</i>"))
+        settings_group.addStretch()
+        
+        layout.addLayout(settings_group)
+        
+        # Store for link nodes to use
+        self.sample_rate = sample_rate
+        self.buffer_size = buffer_size
         
         # Controls
         controls = QHBoxLayout()
@@ -549,4 +1158,5 @@ class FabricCanvasWidget(QWidget):
         """Update status label."""
         fabric_count = len(self.canvas.fabric_nodes)
         link_count = len(self.canvas.link_nodes)
-        self.status_label.setText(f"{fabric_count} nodes, {link_count} links")
+        wire_count = len(self.canvas.wires)
+        self.status_label.setText(f"{fabric_count} nodes, {link_count} links, {wire_count} connections")

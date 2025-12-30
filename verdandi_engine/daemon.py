@@ -14,6 +14,7 @@ from verdandi_codex.crypto import NodeCertificateManager
 from .grpc_server import GrpcServer
 from .discovery import DiscoveryService
 from .fabric_manager import FabricGraphManager
+from .fabric_orchestrator import FabricOrchestrator
 from .node_registry import NodeRegistry
 from .jacktrip_manager import JackTripManager
 from .rtpmidi_manager import RTPMidiManager
@@ -33,6 +34,7 @@ class VerdandiDaemon:
         self.grpc_server: GrpcServer = None
         self.discovery: DiscoveryService = None
         self.fabric_manager: FabricGraphManager = None
+        self.fabric_orchestrator: FabricOrchestrator = None
         self.node_registry: NodeRegistry = None
         self.jacktrip_manager: JackTripManager = None
         self.rtpmidi_manager: RTPMidiManager = None
@@ -75,6 +77,13 @@ class VerdandiDaemon:
             await self.rtpmidi_manager.initialize()
             await self.jack_connection_manager.initialize()
             
+            # Initialize fabric orchestrator
+            self.fabric_orchestrator = FabricOrchestrator(
+                self.config,
+                self.db,
+                self.jacktrip_manager
+            )
+            
             # Ensure default fabric graph exists
             self.fabric_manager.ensure_default_graph()
             
@@ -94,6 +103,10 @@ class VerdandiDaemon:
             self.jack_connection_manager if self.db else None
         )
         self.grpc_server.start()
+        
+        # Start fabric orchestrator (monitors FabricLink and spawns JackTrip)
+        if self.fabric_orchestrator:
+            asyncio.create_task(self.fabric_orchestrator.start())
         
         # Start mDNS discovery
         if self.config.daemon.enable_mdns:
@@ -119,6 +132,10 @@ class VerdandiDaemon:
         """Stop the daemon gracefully."""
         logger.info("stopping_verdandi_engine")
         self.running = False
+        
+        # Stop fabric orchestrator
+        if self.fabric_orchestrator:
+            await self.fabric_orchestrator.stop()
         
         # Stop discovery
         if self.discovery:

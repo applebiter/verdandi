@@ -94,6 +94,22 @@ class JackClientManager:
         
         return connections
     
+    def get_sample_rate(self) -> int:
+        """Get current JACK sample rate."""
+        try:
+            return self.client.samplerate
+        except Exception as e:
+            logger.error(f"Error getting sample rate: {e}")
+            return 48000  # Default fallback
+    
+    def get_buffer_size(self) -> int:
+        """Get current JACK buffer size."""
+        try:
+            return self.client.blocksize
+        except Exception as e:
+            logger.error(f"Error getting buffer size: {e}")
+            return 256  # Default fallback
+    
     def connect_ports(self, output_port: str, input_port: str):
         """
         Connect an output port to an input port.
