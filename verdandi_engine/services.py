@@ -114,9 +114,19 @@ class DiscoveryAndRegistryServicer(verdandi_pb2_grpc.DiscoveryAndRegistryService
 class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
     """Implementation of FabricGraphService."""
     
-    def __init__(self, config: VerdandiConfig, fabric_manager: FabricGraphManager):
+    def __init__(
+        self, 
+        config: VerdandiConfig, 
+        fabric_manager: FabricGraphManager,
+        jacktrip_manager,
+        rtpmidi_manager,
+        jack_connection_manager
+    ):
         self.config = config
         self.fabric_manager = fabric_manager
+        self.jacktrip_manager = jacktrip_manager
+        self.rtpmidi_manager = rtpmidi_manager
+        self.jack_connection_manager = jack_connection_manager
     
     def GetFabricGraph(self, request, context):
         """Return current fabric graph state."""
@@ -178,6 +188,31 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
                 create_voice_bundle=request.create_voice_cmd_bundle,
             )
             
+            # Start JackTrip session if this is the local node
+            if self.jacktrip_manager and request.node_a_id == self.config.node.node_id:
+                # Extract connection params
+                remote_host = params.get("remote_host") if params else None
+                remote_port = params.get("remote_port", 4464) if params else 4464
+                channels = params.get("channels", 2) if params else 2
+                
+                if remote_host:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    success = loop.run_until_complete(
+                        self.jacktrip_manager.create_audio_link(
+                            link_id=str(link.link_id),
+                            remote_host=remote_host,
+                            remote_port=remote_port,
+                            channels=channels
+                        )
+                    )
+                    
+                    if success:
+                        # Auto-connect JACK ports
+                        loop.run_until_complete(
+                            self.jack_connection_manager.connect_link_ports(str(link.link_id))
+                        )
+            
             return verdandi_pb2.LinkOperationResponse(
                 success=True,
                 message=f"Audio link created between {request.node_a_id[:8]} and {request.node_b_id[:8]}",
@@ -202,6 +237,23 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
                 params=params,
             )
             
+            # Start RTP-MIDI session if this is the local node
+            if self.rtpmidi_manager and request.node_a_id == self.config.node.node_id:
+                # Extract connection params
+                remote_host = params.get("remote_host") if params else None
+                remote_port = params.get("remote_port", 5004) if params else 5004
+                
+                if remote_host:
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    loop.run_until_complete(
+                        self.rtpmidi_manager.create_midi_link(
+                            link_id=str(link.link_id),
+                            remote_host=remote_host,
+                            remote_port=remote_port
+                        )
+                    )
+            
             return verdandi_pb2.LinkOperationResponse(
                 success=True,
                 message=f"MIDI link created between {request.node_a_id[:8]} and {request.node_b_id[:8]}",
@@ -218,6 +270,26 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
     def RemoveLink(self, request, context):
         """Remove a link from the fabric graph."""
         try:
+            # Get link info before removing
+            link = self.fabric_manager.get_link(request.link_id)
+            
+            # Stop session managers for this link
+            if link:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                
+                if link.link_type.value == "audio" and self.jacktrip_manager:
+                    loop.run_until_complete(
+                        self.jack_connection_manager.disconnect_link_ports(request.link_id)
+                    )
+                    loop.run_until_complete(
+                        self.jacktrip_manager.remove_audio_link(request.link_id)
+                    )
+                elif link.link_type.value == "midi" and self.rtpmidi_manager:
+                    loop.run_until_complete(
+                        self.rtpmidi_manager.remove_midi_link(request.link_id)
+                    )
+            
             success = self.fabric_manager.remove_link(request.link_id)
             
             if success:
@@ -248,11 +320,33 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
             if not link:
                 context.abort(grpc.StatusCode.NOT_FOUND, "Link not found")
             
+            # Check actual session status
+            observed_status = "UNKNOWN"
+            error_message = ""
+            
+            import asyncio
+            loop = asyncio.get_event_loop()
+            
+            if link.link_type.value == "audio" and self.jacktrip_manager:
+                is_active, status_msg = loop.run_until_complete(
+                    self.jacktrip_manager.get_link_status(request.link_id)
+                )
+                observed_status = "ACTIVE" if is_active else "INACTIVE"
+                if not is_active:
+                    error_message = status_msg or ""
+            elif link.link_type.value == "midi" and self.rtpmidi_manager:
+                is_active, status_msg = loop.run_until_complete(
+                    self.rtpmidi_manager.get_link_status(request.link_id)
+                )
+                observed_status = "ACTIVE" if is_active else "INACTIVE"
+                if not is_active:
+                    error_message = status_msg or ""
+            
             return verdandi_pb2.LinkStatusResponse(
                 link_id=str(link.link_id),
                 status=link.status.value,
-                observed_status="UNKNOWN",  # TODO: implement actual status checking
-                error_message="",
+                observed_status=observed_status,
+                error_message=error_message,
             )
             
         except Exception as e:

@@ -15,6 +15,9 @@ from .grpc_server import GrpcServer
 from .discovery import DiscoveryService
 from .fabric_manager import FabricGraphManager
 from .node_registry import NodeRegistry
+from .jacktrip_manager import JackTripManager
+from .rtpmidi_manager import RTPMidiManager
+from .jack_connection_manager import JackConnectionManager
 
 
 logger = structlog.get_logger()
@@ -31,6 +34,9 @@ class VerdandiDaemon:
         self.discovery: DiscoveryService = None
         self.fabric_manager: FabricGraphManager = None
         self.node_registry: NodeRegistry = None
+        self.jacktrip_manager: JackTripManager = None
+        self.rtpmidi_manager: RTPMidiManager = None
+        self.jack_connection_manager: JackConnectionManager = None
         
     async def start(self):
         """Start the daemon."""
@@ -60,6 +66,14 @@ class VerdandiDaemon:
             # Initialize managers that require database
             self.fabric_manager = FabricGraphManager(self.db, self.config)
             self.node_registry = NodeRegistry(self.db, self.config)
+            self.jacktrip_manager = JackTripManager(self.config, self.db)
+            self.rtpmidi_manager = RTPMidiManager(self.config, self.db)
+            self.jack_connection_manager = JackConnectionManager(self.config, self.db)
+            
+            # Initialize session managers
+            await self.jacktrip_manager.initialize()
+            await self.rtpmidi_manager.initialize()
+            await self.jack_connection_manager.initialize()
             
             # Ensure default fabric graph exists
             self.fabric_manager.ensure_default_graph()
@@ -79,7 +93,14 @@ class VerdandiDaemon:
             
             
         # Start gRPC server
-        self.grpc_server = GrpcServer(self.config, self.fabric_manager, self.node_registry)
+        self.grpc_server = GrpcServer(
+            self.config, 
+            self.fabric_manager, 
+            self.node_registry,
+            self.jacktrip_manager if self.db else None,
+            self.rtpmidi_manager if self.db else None,
+            self.jack_connection_manager if self.db else None
+        )
         self.grpc_server.start()
         
         # Start mDNS discovery
@@ -106,6 +127,16 @@ class VerdandiDaemon:
         # Stop gRPC server
         if self.grpc_server:
             self.grpc_server.stop()
+        
+        # Shutdown session managers
+        if self.jack_connection_manager:
+            await self.jack_connection_manager.shutdown()
+            
+        if self.jacktrip_manager:
+            await self.jacktrip_manager.shutdown()
+            
+        if self.rtpmidi_manager:
+            await self.rtpmidi_manager.shutdown()
         
         # Cleanup database
         if self.db:

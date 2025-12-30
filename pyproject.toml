@@ -39,6 +39,9 @@ dependencies = [
     # Logging and monitoring
     "structlog>=24.1.0",
     "psutil>=5.9.0",
+    
+    # Audio/MIDI fabric
+    "JACK-Client>=0.5.4",
 ]
 
 [project.optional-dependencies]
