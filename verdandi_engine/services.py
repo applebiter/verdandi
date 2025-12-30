@@ -6,11 +6,14 @@ import grpc
 import platform
 import psutil
 import time
+import json
 from datetime import datetime
 from typing import Optional
 
 from verdandi_codex.proto import verdandi_pb2, verdandi_pb2_grpc
 from verdandi_codex.config import VerdandiConfig
+from .fabric_manager import FabricGraphManager
+from .node_registry import NodeRegistry
 
 
 class NodeIdentityServicer(verdandi_pb2_grpc.NodeIdentityServiceServicer):
@@ -88,9 +91,10 @@ class HealthMetricsServicer(verdandi_pb2_grpc.HealthMetricsServiceServicer):
 class DiscoveryAndRegistryServicer(verdandi_pb2_grpc.DiscoveryAndRegistryServiceServicer):
     """Implementation of DiscoveryAndRegistryService."""
     
-    def __init__(self, config: VerdandiConfig):
+    def __init__(self, config: VerdandiConfig, node_registry: Optional[NodeRegistry] = None):
         self.config = config
         self.known_nodes = {}  # Will be populated by discovery
+        self.node_registry = node_registry
     
     def GetKnownNodes(self, request, context):
         """Return list of known nodes."""
@@ -105,3 +109,188 @@ class DiscoveryAndRegistryServicer(verdandi_pb2_grpc.DiscoveryAndRegistryService
         # Placeholder - will integrate with mDNS discovery
         while context.is_active():
             time.sleep(1)
+
+
+class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
+    """Implementation of FabricGraphService."""
+    
+    def __init__(self, config: VerdandiConfig, fabric_manager: FabricGraphManager):
+        self.config = config
+        self.fabric_manager = fabric_manager
+    
+    def GetFabricGraph(self, request, context):
+        """Return current fabric graph state."""
+        try:
+            graph = self.fabric_manager.get_graph(request.graph_id or None)
+            
+            if not graph:
+                context.abort(grpc.StatusCode.NOT_FOUND, "Graph not found")
+            
+            # Get all links for this graph
+            links = self.fabric_manager.list_links(str(graph.graph_id))
+            
+            link_infos = []
+            for link in links:
+                bundles = [
+                    verdandi_pb2.BundleInfo(
+                        bundle_id=str(bundle.bundle_id),
+                        name=bundle.name,
+                        directionality=bundle.directionality.value,
+                        channels=bundle.channels,
+                        format=bundle.format,
+                    )
+                    for bundle in link.bundles
+                ]
+                
+                link_infos.append(
+                    verdandi_pb2.FabricLinkInfo(
+                        link_id=str(link.link_id),
+                        link_type=link.link_type.value,
+                        node_a_id=str(link.node_a_id),
+                        node_b_id=str(link.node_b_id),
+                        status=link.status.value,
+                        params_json=json.dumps(link.params_json),
+                        bundles=bundles,
+                        created_at=int(link.created_at.timestamp() * 1000),
+                    )
+                )
+            
+            return verdandi_pb2.FabricGraphResponse(
+                graph_id=str(graph.graph_id),
+                name=graph.name,
+                version=graph.version,
+                links=link_infos,
+                updated_at=int(graph.updated_at.timestamp() * 1000),
+            )
+            
+        except Exception as e:
+            context.abort(grpc.StatusCode.INTERNAL, str(e))
+    
+    def CreateAudioLink(self, request, context):
+        """Create an audio link between two nodes."""
+        try:
+            params = json.loads(request.params_json) if request.params_json else None
+            
+            link = self.fabric_manager.create_audio_link(
+                node_a_id=request.node_a_id,
+                node_b_id=request.node_b_id,
+                params=params,
+                create_voice_bundle=request.create_voice_cmd_bundle,
+            )
+            
+            return verdandi_pb2.LinkOperationResponse(
+                success=True,
+                message=f"Audio link created between {request.node_a_id[:8]} and {request.node_b_id[:8]}",
+                link_id=str(link.link_id),
+            )
+            
+        except Exception as e:
+            return verdandi_pb2.LinkOperationResponse(
+                success=False,
+                message=f"Failed to create audio link: {str(e)}",
+                link_id="",
+            )
+    
+    def CreateMidiLink(self, request, context):
+        """Create a MIDI link between two nodes."""
+        try:
+            params = json.loads(request.params_json) if request.params_json else None
+            
+            link = self.fabric_manager.create_midi_link(
+                node_a_id=request.node_a_id,
+                node_b_id=request.node_b_id,
+                params=params,
+            )
+            
+            return verdandi_pb2.LinkOperationResponse(
+                success=True,
+                message=f"MIDI link created between {request.node_a_id[:8]} and {request.node_b_id[:8]}",
+                link_id=str(link.link_id),
+            )
+            
+        except Exception as e:
+            return verdandi_pb2.LinkOperationResponse(
+                success=False,
+                message=f"Failed to create MIDI link: {str(e)}",
+                link_id="",
+            )
+    
+    def RemoveLink(self, request, context):
+        """Remove a link from the fabric graph."""
+        try:
+            success = self.fabric_manager.remove_link(request.link_id)
+            
+            if success:
+                return verdandi_pb2.LinkOperationResponse(
+                    success=True,
+                    message="Link removed successfully",
+                    link_id=request.link_id,
+                )
+            else:
+                return verdandi_pb2.LinkOperationResponse(
+                    success=False,
+                    message="Link not found",
+                    link_id=request.link_id,
+                )
+                
+        except Exception as e:
+            return verdandi_pb2.LinkOperationResponse(
+                success=False,
+                message=f"Failed to remove link: {str(e)}",
+                link_id=request.link_id,
+            )
+    
+    def GetLinkStatus(self, request, context):
+        """Get status of a specific link."""
+        try:
+            link = self.fabric_manager.get_link(request.link_id)
+            
+            if not link:
+                context.abort(grpc.StatusCode.NOT_FOUND, "Link not found")
+            
+            return verdandi_pb2.LinkStatusResponse(
+                link_id=str(link.link_id),
+                status=link.status.value,
+                observed_status="UNKNOWN",  # TODO: implement actual status checking
+                error_message="",
+            )
+            
+        except Exception as e:
+            context.abort(grpc.StatusCode.INTERNAL, str(e))
+    
+    def ListLinks(self, request, context):
+        """List all links in the fabric graph."""
+        try:
+            links = self.fabric_manager.list_links()
+            
+            link_infos = []
+            for link in links:
+                bundles = [
+                    verdandi_pb2.BundleInfo(
+                        bundle_id=str(bundle.bundle_id),
+                        name=bundle.name,
+                        directionality=bundle.directionality.value,
+                        channels=bundle.channels,
+                        format=bundle.format,
+                    )
+                    for bundle in link.bundles
+                ]
+                
+                link_infos.append(
+                    verdandi_pb2.FabricLinkInfo(
+                        link_id=str(link.link_id),
+                        link_type=link.link_type.value,
+                        node_a_id=str(link.node_a_id),
+                        node_b_id=str(link.node_b_id),
+                        status=link.status.value,
+                        params_json=json.dumps(link.params_json),
+                        bundles=bundles,
+                        created_at=int(link.created_at.timestamp() * 1000),
+                    )
+                )
+            
+            return verdandi_pb2.ListLinksResponse(links=link_infos)
+            
+        except Exception as e:
+            context.abort(grpc.StatusCode.INTERNAL, str(e))
+

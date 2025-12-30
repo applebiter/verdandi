@@ -14,7 +14,10 @@ from .services import (
     NodeIdentityServicer,
     HealthMetricsServicer,
     DiscoveryAndRegistryServicer,
+    FabricGraphServicer,
 )
+from .fabric_manager import FabricGraphManager
+from .node_registry import NodeRegistry
 
 
 logger = structlog.get_logger()
@@ -23,8 +26,15 @@ logger = structlog.get_logger()
 class GrpcServer:
     """gRPC server manager for daemon services."""
     
-    def __init__(self, config: VerdandiConfig):
+    def __init__(
+        self,
+        config: VerdandiConfig,
+        fabric_manager: FabricGraphManager,
+        node_registry: NodeRegistry,
+    ):
         self.config = config
+        self.fabric_manager = fabric_manager
+        self.node_registry = node_registry
         self.server: Optional[grpc.Server] = None
     
     def start(self):
@@ -45,7 +55,10 @@ class GrpcServer:
             HealthMetricsServicer(self.config), self.server
         )
         verdandi_pb2_grpc.add_DiscoveryAndRegistryServiceServicer_to_server(
-            DiscoveryAndRegistryServicer(self.config), self.server
+            DiscoveryAndRegistryServicer(self.config, self.node_registry), self.server
+        )
+        verdandi_pb2_grpc.add_FabricGraphServiceServicer_to_server(
+            FabricGraphServicer(self.config, self.fabric_manager), self.server
         )
         
         # Configure TLS if enabled

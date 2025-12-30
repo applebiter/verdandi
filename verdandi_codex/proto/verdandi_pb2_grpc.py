@@ -377,3 +377,293 @@ class DiscoveryAndRegistryService(object):
             timeout,
             metadata,
             _registered_method=True)
+
+
+class FabricGraphServiceStub(object):
+    """FabricGraphService
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.GetFabricGraph = channel.unary_unary(
+                '/verdandi.FabricGraphService/GetFabricGraph',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.GetFabricGraphRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.FabricGraphResponse.FromString,
+                _registered_method=True)
+        self.CreateAudioLink = channel.unary_unary(
+                '/verdandi.FabricGraphService/CreateAudioLink',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.CreateAudioLinkRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.FromString,
+                _registered_method=True)
+        self.CreateMidiLink = channel.unary_unary(
+                '/verdandi.FabricGraphService/CreateMidiLink',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.CreateMidiLinkRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.FromString,
+                _registered_method=True)
+        self.RemoveLink = channel.unary_unary(
+                '/verdandi.FabricGraphService/RemoveLink',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.RemoveLinkRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.FromString,
+                _registered_method=True)
+        self.GetLinkStatus = channel.unary_unary(
+                '/verdandi.FabricGraphService/GetLinkStatus',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.GetLinkStatusRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkStatusResponse.FromString,
+                _registered_method=True)
+        self.ListLinks = channel.unary_unary(
+                '/verdandi.FabricGraphService/ListLinks',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.ListLinksResponse.FromString,
+                _registered_method=True)
+
+
+class FabricGraphServiceServicer(object):
+    """FabricGraphService
+    """
+
+    def GetFabricGraph(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateAudioLink(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def CreateMidiLink(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def RemoveLink(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetLinkStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListLinks(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_FabricGraphServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'GetFabricGraph': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetFabricGraph,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.GetFabricGraphRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.FabricGraphResponse.SerializeToString,
+            ),
+            'CreateAudioLink': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateAudioLink,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.CreateAudioLinkRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.SerializeToString,
+            ),
+            'CreateMidiLink': grpc.unary_unary_rpc_method_handler(
+                    servicer.CreateMidiLink,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.CreateMidiLinkRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.SerializeToString,
+            ),
+            'RemoveLink': grpc.unary_unary_rpc_method_handler(
+                    servicer.RemoveLink,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.RemoveLinkRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.SerializeToString,
+            ),
+            'GetLinkStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetLinkStatus,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.GetLinkStatusRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.LinkStatusResponse.SerializeToString,
+            ),
+            'ListLinks': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListLinks,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.ListLinksResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'verdandi.FabricGraphService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('verdandi.FabricGraphService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class FabricGraphService(object):
+    """FabricGraphService
+    """
+
+    @staticmethod
+    def GetFabricGraph(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.FabricGraphService/GetFabricGraph',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.GetFabricGraphRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.FabricGraphResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateAudioLink(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.FabricGraphService/CreateAudioLink',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.CreateAudioLinkRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def CreateMidiLink(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.FabricGraphService/CreateMidiLink',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.CreateMidiLinkRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def RemoveLink(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.FabricGraphService/RemoveLink',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.RemoveLinkRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.LinkOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetLinkStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.FabricGraphService/GetLinkStatus',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.GetLinkStatusRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.LinkStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListLinks(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.FabricGraphService/ListLinks',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.ListLinksResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

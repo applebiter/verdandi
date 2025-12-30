@@ -102,6 +102,84 @@ def cmd_certs(args):
         print(f"\nFingerprint:      {fingerprint or '(not found)'}")
 
 
+def cmd_nodes(args):
+    """List nodes in the fabric."""
+    from verdandi_codex.database import Database
+    from verdandi_codex.models import Node
+    
+    config = VerdandiConfig.load()
+    
+    try:
+        db = Database(config.database)
+        session = db.get_session()
+        
+        nodes = session.query(Node).order_by(Node.hostname).all()
+        
+        if not nodes:
+            print("No nodes registered yet.")
+            print("\nHint: Start verdandi-engine to discover nodes via mDNS")
+            return
+        
+        print(f"Registered Nodes ({len(nodes)})")
+        print("=" * 80)
+        
+        for node in nodes:
+            status_symbol = "●" if node.status == "online" else "○"
+            print(f"\n{status_symbol} {node.hostname} ({node.display_name})")
+            print(f"  Node ID:  {node.node_id}")
+            print(f"  Address:  {node.ip_last_seen}:{node.daemon_port}")
+            print(f"  Status:   {node.status}")
+            print(f"  Last Seen: {node.last_seen_at}")
+        
+        session.close()
+        
+    except Exception as e:
+        print(f"Error: {e}")
+
+
+def cmd_links(args):
+    """Manage fabric links."""
+    from verdandi_codex.database import Database
+    from verdandi_codex.models import FabricLink, Node
+    
+    config = VerdandiConfig.load()
+    
+    try:
+        db = Database(config.database)
+        session = db.get_session()
+        
+        if args.list:
+            links = session.query(FabricLink).all()
+            
+            if not links:
+                print("No links defined in fabric graph.")
+                return
+            
+            print(f"Fabric Links ({len(links)})")
+            print("=" * 80)
+            
+            for link in links:
+                # Get node hostnames
+                node_a = session.query(Node).filter_by(node_id=link.node_a_id).first()
+                node_b = session.query(Node).filter_by(node_id=link.node_b_id).first()
+                
+                node_a_name = node_a.hostname if node_a else str(link.node_a_id)[:8]
+                node_b_name = node_b.hostname if node_b else str(link.node_b_id)[:8]
+                
+                print(f"\n[{link.link_type.value}] {node_a_name} ↔ {node_b_name}")
+                print(f"  Link ID:  {link.link_id}")
+                print(f"  Status:   {link.status.value}")
+                print(f"  Bundles:  {len(link.bundles)}")
+                
+                for bundle in link.bundles:
+                    print(f"    • {bundle.name} ({bundle.channels}ch, {bundle.directionality.value})")
+        
+        session.close()
+        
+    except Exception as e:
+        print(f"Error: {e}")
+
+
 def main():
     """Main CLI entry point."""
     structlog.configure(
@@ -152,6 +230,20 @@ def main():
         help="Show certificate information",
     )
     parser_certs.set_defaults(func=cmd_certs)
+    
+    # Nodes command
+    parser_nodes = subparsers.add_parser("nodes", help="List registered nodes")
+    parser_nodes.set_defaults(func=cmd_nodes)
+    
+    # Links command
+    parser_links = subparsers.add_parser("links", help="Manage fabric links")
+    parser_links.add_argument(
+        "--list",
+        action="store_true",
+        default=True,
+        help="List all links",
+    )
+    parser_links.set_defaults(func=cmd_links)
     
     args = parser.parse_args()
     

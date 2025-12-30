@@ -13,6 +13,8 @@ from verdandi_codex.database import Database
 from verdandi_codex.crypto import NodeCertificateManager
 from .grpc_server import GrpcServer
 from .discovery import DiscoveryService
+from .fabric_manager import FabricGraphManager
+from .node_registry import NodeRegistry
 
 
 logger = structlog.get_logger()
@@ -27,6 +29,8 @@ class VerdandiDaemon:
         self.db: Database = None
         self.grpc_server: GrpcServer = None
         self.discovery: DiscoveryService = None
+        self.fabric_manager: FabricGraphManager = None
+        self.node_registry: NodeRegistry = None
         
     async def start(self):
         """Start the daemon."""
@@ -52,13 +56,30 @@ class VerdandiDaemon:
         try:
             self.db = Database(self.config.database)
             logger.info("database_connected", host=self.config.database.host)
+            
+            # Initialize managers that require database
+            self.fabric_manager = FabricGraphManager(self.db, self.config)
+            self.node_registry = NodeRegistry(self.db, self.config)
+            
+            # Ensure default fabric graph exists
+            self.fabric_manager.ensure_default_graph()
+            
         except Exception as e:
             logger.error("database_connection_failed", error=str(e))
             # Continue in degraded mode
             self.db = None
         
+            # Register callback to persist discovered nodes
+            if self.node_registry:
+                async def on_discovery_event(event_type, service_info):
+                    if event_type == "discovered":
+                        self.node_registry.register_from_mdns(service_info)
+                
+                self.discovery.register_callback(on_discovery_event)
+            
+            
         # Start gRPC server
-        self.grpc_server = GrpcServer(self.config)
+        self.grpc_server = GrpcServer(self.config, self.fabric_manager, self.node_registry)
         self.grpc_server.start()
         
         # Start mDNS discovery

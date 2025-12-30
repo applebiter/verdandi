@@ -113,3 +113,82 @@ message PresenceEvent {
     NodePresence node = 2;
     int64 timestamp = 3;
 }
+
+// FabricGraphService
+service FabricGraphService {
+    rpc GetFabricGraph(GetFabricGraphRequest) returns (FabricGraphResponse);
+    rpc CreateAudioLink(CreateAudioLinkRequest) returns (LinkOperationResponse);
+    rpc CreateMidiLink(CreateMidiLinkRequest) returns (LinkOperationResponse);
+    rpc RemoveLink(RemoveLinkRequest) returns (LinkOperationResponse);
+    rpc GetLinkStatus(GetLinkStatusRequest) returns (LinkStatusResponse);
+    rpc ListLinks(Empty) returns (ListLinksResponse);
+}
+
+message GetFabricGraphRequest {
+    string graph_id = 1;  // Optional, defaults to "Home"
+}
+
+message FabricGraphResponse {
+    string graph_id = 1;
+    string name = 2;
+    int32 version = 3;
+    repeated FabricLinkInfo links = 4;
+    int64 updated_at = 5;
+}
+
+message FabricLinkInfo {
+    string link_id = 1;
+    string link_type = 2;  // AUDIO_JACKTRIP, MIDI_RTP
+    string node_a_id = 3;
+    string node_b_id = 4;
+    string status = 5;
+    string params_json = 6;
+    repeated BundleInfo bundles = 7;
+    int64 created_at = 8;
+}
+
+message BundleInfo {
+    string bundle_id = 1;
+    string name = 2;
+    string directionality = 3;  // BIDIR, A_TO_B, B_TO_A
+    int32 channels = 4;
+    string format = 5;
+}
+
+message CreateAudioLinkRequest {
+    string node_a_id = 1;
+    string node_b_id = 2;
+    string params_json = 3;  // JackTrip options
+    bool create_voice_cmd_bundle = 4;  // Auto-create voice command bundle
+}
+
+message CreateMidiLinkRequest {
+    string node_a_id = 1;
+    string node_b_id = 2;
+    string params_json = 3;  // RTP-MIDI options
+}
+
+message RemoveLinkRequest {
+    string link_id = 1;
+}
+
+message LinkOperationResponse {
+    bool success = 1;
+    string message = 2;
+    string link_id = 3;
+}
+
+message GetLinkStatusRequest {
+    string link_id = 1;
+}
+
+message LinkStatusResponse {
+    string link_id = 1;
+    string status = 2;
+    string observed_status = 3;
+    string error_message = 4;
+}
+
+message ListLinksResponse {
+    repeated FabricLinkInfo links = 1;
+}
