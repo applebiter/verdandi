@@ -82,14 +82,6 @@ class VerdandiDaemon:
             logger.error("database_connection_failed", error=str(e))
             # Continue in degraded mode
             self.db = None
-        
-            # Register callback to persist discovered nodes
-            if self.node_registry:
-                async def on_discovery_event(event_type, service_info):
-                    if event_type == "discovered":
-                        self.node_registry.register_from_mdns(service_info)
-                
-                self.discovery.register_callback(on_discovery_event)
             
             
         # Start gRPC server
@@ -107,6 +99,14 @@ class VerdandiDaemon:
         if self.config.daemon.enable_mdns:
             self.discovery = DiscoveryService(self.config)
             await self.discovery.start()
+            
+            # Register callback to persist discovered nodes
+            if self.node_registry:
+                async def on_discovery_event(event_type, service_info):
+                    if event_type == "discovered":
+                        self.node_registry.register_from_mdns(service_info)
+                
+                self.discovery.register_callback(on_discovery_event)
         
         self.running = True
         logger.info("verdandi_engine_started")

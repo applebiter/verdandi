@@ -82,11 +82,16 @@ class NodeRegistry:
     def register_from_mdns(self, service_info: ServiceInfo):
         """Register a node from mDNS ServiceInfo."""
         try:
-            # Extract properties
-            node_id = service_info.properties.get(b"node_id", b"").decode("utf-8")
-            hostname = service_info.properties.get(b"hostname", b"").decode("utf-8")
-            display_name = service_info.properties.get(b"display_name", b"").decode("utf-8")
-            cert_fingerprint = service_info.properties.get(b"cert_fingerprint", b"").decode("utf-8")
+            # Extract properties safely
+            node_id_bytes = service_info.properties.get(b"node_id")
+            hostname_bytes = service_info.properties.get(b"hostname")
+            display_name_bytes = service_info.properties.get(b"display_name")
+            cert_fingerprint_bytes = service_info.properties.get(b"cert_fingerprint")
+            
+            node_id = node_id_bytes.decode("utf-8") if node_id_bytes else ""
+            hostname = hostname_bytes.decode("utf-8") if hostname_bytes else ""
+            display_name = display_name_bytes.decode("utf-8") if display_name_bytes else ""
+            cert_fingerprint = cert_fingerprint_bytes.decode("utf-8") if cert_fingerprint_bytes else ""
             
             if not node_id or not hostname:
                 logger.warning("mdns_missing_required_fields", service=service_info.name)
