@@ -1,0 +1,84 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "verdandi"
+version = "0.1.0"
+description = "Local-first, peer-to-peer AI platform with real-time audio/MIDI fabric"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "applebiter", email = "applebiter@users.noreply.github.com"}
+]
+
+dependencies = [
+    # Core async and networking
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "protobuf>=4.25.0",
+    
+    # Database
+    "sqlalchemy>=2.0.0",
+    "psycopg2-binary>=2.9.9",
+    "alembic>=1.13.0",
+    "pgvector>=0.2.4",
+    
+    # Discovery and networking
+    "zeroconf>=0.131.0",
+    
+    # Configuration and utilities
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "cryptography>=41.0.0",
+    
+    # Ollama client
+    "ollama>=0.1.0",
+    
+    # Logging and monitoring
+    "structlog>=24.1.0",
+]
+
+[project.optional-dependencies]
+gui = [
+    "PySide6>=6.6.0",
+]
+
+voice = [
+    "vosk>=0.3.45",
+    "openwakeword>=0.5.0",
+    "webrtcvad>=2.0.10",
+    "pyaudio>=0.2.13",
+]
+
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[project.scripts]
+verdandi-engine = "verdandi_engine.daemon:main"
+verdandi-hall = "verdandi_hall.main:main"
+verdandi-rune = "verdandi_rune.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["verdandi_*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
