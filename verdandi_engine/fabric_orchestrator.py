@@ -35,6 +35,7 @@ class FabricOrchestrator:
         self.jacktrip_manager = jacktrip_manager
         self.running = False
         self.active_links: Set[str] = set()  # link_ids we're managing
+        self.hub_server_process = None  # JackTrip hub server process (if this node is a hub)
         
     async def start(self):
         """Start the orchestration loop."""
@@ -67,6 +68,26 @@ class FabricOrchestrator:
             
             # Get all links for this graph
             links = session.query(FabricLink).filter_by(graph_id=graph.graph_id).all()
+            
+            # Check if this node is a hub for any link
+            local_node_id = str(self.config.node.node_id)
+            is_hub_for_any_link = False
+            
+            for link in links:
+                if isinstance(link.params_json, str):
+                    params = json.loads(link.params_json)
+                else:
+                    params = link.params_json or {}
+                
+                mode = params.get('mode', 'P2P')
+                if mode == 'HUB':
+                    hub_node_id = params.get('hub_node_id')
+                    if hub_node_id == local_node_id:
+                        is_hub_for_any_link = True
+                        break
+            
+            # Manage hub server
+            await self._manage_hub_server(is_hub_for_any_link)
             
             # Track which links should be active
             desired_links = set()
@@ -167,7 +188,7 @@ class FabricOrchestrator:
                 return False
             
             remote_host = target_node.ip_last_seen
-            remote_port = target_node.daemon_port or 4464  # Default JackTrip UDP port
+            remote_port = 4464  # Default JackTrip port (or use 61002 for UDP)
             
         elif mode == 'HUB':
             # Connect to the hub node
@@ -183,7 +204,7 @@ class FabricOrchestrator:
                 return False
             
             remote_host = hub_node.ip_last_seen
-            remote_port = hub_node.daemon_port or 4464
+            remote_port = 4464  # JackTrip hub server port
         
         else:
             logger.error("unknown_link_mode", link_id=link_id, mode=mode)
@@ -204,6 +225,76 @@ class FabricOrchestrator:
             mode=mode,
             remote_host=remote_host,
             remote_port=remote_port,
+            channels=channels
+        )
+        
+        # Spawn JackTrip client
+        return await self.jacktrip_manager.create_audio_link(
+            link_id=link_id,
+            remote_host=remote_host,
+            remote_port=remote_port,
+            channels=channels,
+            mode=mode.lower(),
+            sample_rate=sample_rate,
+            buffer_size=buffer_size
+        )
+    
+    async def _terminate_link(self, link_id: str) -> bool:
+        \"\"\"Terminate JackTrip process for a link.\"\"\"
+        logger.info("terminating_jacktrip_for_link", link_id=link_id)
+        return await self.jacktrip_manager.remove_audio_link(link_id)
+    
+    async def _manage_hub_server(self, should_be_running: bool):
+        \"\"\"Start or stop the JackTrip hub server as needed.\"\"\"
+        import shutil
+        
+        if should_be_running and self.hub_server_process is None:
+            # Start hub server
+            jacktrip_bin = shutil.which(\"jacktrip\")
+            if not jacktrip_bin:
+                logger.error(\"jacktrip_not_found_for_hub_server\")
+                return
+            
+            logger.info(\"starting_jacktrip_hub_server\", port=4464)
+            
+            try:
+                self.hub_server_process = await asyncio.create_subprocess_exec(
+                    jacktrip_bin,
+                    \"-s\",  # Server mode
+                    \"-p\", \"4464\",  # Port
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                
+                # Give it a moment to start
+                await asyncio.sleep(0.5)
+                
+                if self.hub_server_process.returncode is not None:
+                    stdout, stderr = await self.hub_server_process.communicate()
+                    logger.error(
+                        \"hub_server_failed_to_start\",
+                        exit_code=self.hub_server_process.returncode,
+                        stderr=stderr.decode()[:500]
+                    )
+                    self.hub_server_process = None
+                else:
+                    logger.info(\"hub_server_started\", pid=self.hub_server_process.pid)
+            except Exception as e:
+                logger.error(\"failed_to_start_hub_server\", error=str(e), exc_info=True)
+                
+        elif not should_be_running and self.hub_server_process is not None:
+            # Stop hub server
+            logger.info(\"stopping_jacktrip_hub_server\")
+            try:
+                self.hub_server_process.terminate()
+                await asyncio.wait_for(self.hub_server_process.wait(), timeout=5.0)
+                logger.info(\"hub_server_stopped\")
+            except asyncio.TimeoutError:
+                logger.warning(\"hub_server_shutdown_timeout_killing\")
+                self.hub_server_process.kill()
+                await self.hub_server_process.wait()
+            finally:
+                self.hub_server_process = None
             channels=channels
         )
         
