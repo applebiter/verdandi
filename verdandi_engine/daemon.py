@@ -12,6 +12,7 @@ from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
 from verdandi_codex.crypto import NodeCertificateManager
 from .grpc_server import GrpcServer
+from .discovery import DiscoveryService
 
 
 logger = structlog.get_logger()
@@ -25,6 +26,7 @@ class VerdandiDaemon:
         self.running = False
         self.db: Database = None
         self.grpc_server: GrpcServer = None
+        self.discovery: DiscoveryService = None
         
     async def start(self):
         """Start the daemon."""
@@ -59,6 +61,11 @@ class VerdandiDaemon:
         self.grpc_server = GrpcServer(self.config)
         self.grpc_server.start()
         
+        # Start mDNS discovery
+        if self.config.daemon.enable_mdns:
+            self.discovery = DiscoveryService(self.config)
+            await self.discovery.start()
+        
         self.running = True
         logger.info("verdandi_engine_started")
         
@@ -70,6 +77,10 @@ class VerdandiDaemon:
         """Stop the daemon gracefully."""
         logger.info("stopping_verdandi_engine")
         self.running = False
+        
+        # Stop discovery
+        if self.discovery:
+            await self.discovery.stop()
         
         # Stop gRPC server
         if self.grpc_server:
