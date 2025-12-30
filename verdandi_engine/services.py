@@ -197,21 +197,33 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
                 
                 if remote_host:
                     import asyncio
-                    loop = asyncio.get_event_loop()
-                    success = loop.run_until_complete(
-                        self.jacktrip_manager.create_audio_link(
-                            link_id=str(link.link_id),
-                            remote_host=remote_host,
-                            remote_port=remote_port,
-                            channels=channels
-                        )
-                    )
+                    import threading
                     
-                    if success:
-                        # Auto-connect JACK ports
-                        loop.run_until_complete(
-                            self.jack_connection_manager.connect_link_ports(str(link.link_id))
-                        )
+                    # Run async code in a new thread with its own event loop
+                    def start_session():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            success = loop.run_until_complete(
+                                self.jacktrip_manager.create_audio_link(
+                                    link_id=str(link.link_id),
+                                    remote_host=remote_host,
+                                    remote_port=remote_port,
+                                    channels=channels
+                                )
+                            )
+                            
+                            if success:
+                                # Auto-connect JACK ports
+                                loop.run_until_complete(
+                                    self.jack_connection_manager.connect_link_ports(str(link.link_id))
+                                )
+                        finally:
+                            loop.close()
+                    
+                    thread = threading.Thread(target=start_session, daemon=True)
+                    thread.start()
+                    thread.join(timeout=2.0)  # Wait up to 2 seconds
             
             return verdandi_pb2.LinkOperationResponse(
                 success=True,
@@ -245,14 +257,25 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
                 
                 if remote_host:
                     import asyncio
-                    loop = asyncio.get_event_loop()
-                    loop.run_until_complete(
-                        self.rtpmidi_manager.create_midi_link(
-                            link_id=str(link.link_id),
-                            remote_host=remote_host,
-                            remote_port=remote_port
-                        )
-                    )
+                    import threading
+                    
+                    def start_session():
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(
+                                self.rtpmidi_manager.create_midi_link(
+                                    link_id=str(link.link_id),
+                                    remote_host=remote_host,
+                                    remote_port=remote_port
+                                )
+                            )
+                        finally:
+                            loop.close()
+                    
+                    thread = threading.Thread(target=start_session, daemon=True)
+                    thread.start()
+                    thread.join(timeout=2.0)
             
             return verdandi_pb2.LinkOperationResponse(
                 success=True,
@@ -276,19 +299,29 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
             # Stop session managers for this link
             if link:
                 import asyncio
-                loop = asyncio.get_event_loop()
+                import threading
                 
-                if link.link_type.value == "audio" and self.jacktrip_manager:
-                    loop.run_until_complete(
-                        self.jack_connection_manager.disconnect_link_ports(request.link_id)
-                    )
-                    loop.run_until_complete(
-                        self.jacktrip_manager.remove_audio_link(request.link_id)
-                    )
-                elif link.link_type.value == "midi" and self.rtpmidi_manager:
-                    loop.run_until_complete(
-                        self.rtpmidi_manager.remove_midi_link(request.link_id)
-                    )
+                def stop_session():
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        if link.link_type.value == "audio" and self.jacktrip_manager:
+                            loop.run_until_complete(
+                                self.jack_connection_manager.disconnect_link_ports(request.link_id)
+                            )
+                            loop.run_until_complete(
+                                self.jacktrip_manager.remove_audio_link(request.link_id)
+                            )
+                        elif link.link_type.value == "midi" and self.rtpmidi_manager:
+                            loop.run_until_complete(
+                                self.rtpmidi_manager.remove_midi_link(request.link_id)
+                            )
+                    finally:
+                        loop.close()
+                
+                thread = threading.Thread(target=stop_session, daemon=True)
+                thread.start()
+                thread.join(timeout=2.0)
             
             success = self.fabric_manager.remove_link(request.link_id)
             
@@ -325,22 +358,36 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
             error_message = ""
             
             import asyncio
-            loop = asyncio.get_event_loop()
+            import threading
             
-            if link.link_type.value == "audio" and self.jacktrip_manager:
-                is_active, status_msg = loop.run_until_complete(
-                    self.jacktrip_manager.get_link_status(request.link_id)
-                )
-                observed_status = "ACTIVE" if is_active else "INACTIVE"
-                if not is_active:
-                    error_message = status_msg or ""
-            elif link.link_type.value == "midi" and self.rtpmidi_manager:
-                is_active, status_msg = loop.run_until_complete(
-                    self.rtpmidi_manager.get_link_status(request.link_id)
-                )
-                observed_status = "ACTIVE" if is_active else "INACTIVE"
-                if not is_active:
-                    error_message = status_msg or ""
+            status_result = {"is_active": False, "message": ""}
+            
+            def check_status():
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    if link.link_type.value == "audio" and self.jacktrip_manager:
+                        is_active, status_msg = loop.run_until_complete(
+                            self.jacktrip_manager.get_link_status(request.link_id)
+                        )
+                        status_result["is_active"] = is_active
+                        status_result["message"] = status_msg or ""
+                    elif link.link_type.value == "midi" and self.rtpmidi_manager:
+                        is_active, status_msg = loop.run_until_complete(
+                            self.rtpmidi_manager.get_link_status(request.link_id)
+                        )
+                        status_result["is_active"] = is_active
+                        status_result["message"] = status_msg or ""
+                finally:
+                    loop.close()
+            
+            thread = threading.Thread(target=check_status, daemon=True)
+            thread.start()
+            thread.join(timeout=1.0)
+            
+            observed_status = "ACTIVE" if status_result["is_active"] else "INACTIVE"
+            if not status_result["is_active"]:
+                error_message = status_result["message"]
             
             return verdandi_pb2.LinkStatusResponse(
                 link_id=str(link.link_id),

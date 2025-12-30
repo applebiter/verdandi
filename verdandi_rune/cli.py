@@ -148,7 +148,59 @@ def cmd_links(args):
         db = Database(config.database)
         session = db.get_session()
         
-        if args.list:
+        if args.create_audio:
+            # Create audio link via gRPC
+            import grpc
+            import json
+            from verdandi_codex.proto import verdandi_pb2, verdandi_pb2_grpc
+            
+            if not args.node_a or not args.node_b or not args.host:
+                print("Error: --node-a, --node-b, and --host are required")
+                return
+            
+            # Load TLS credentials
+            import os
+            config_dir = os.path.expanduser('~/.config/verdandi')
+            with open(f'{config_dir}/certificates/ca.crt', 'rb') as f:
+                ca_cert = f.read()
+            with open(f'{config_dir}/certificates/node.crt', 'rb') as f:
+                client_cert = f.read()
+            with open(f'{config_dir}/certificates/node.key', 'rb') as f:
+                client_key = f.read()
+            
+            credentials = grpc.ssl_channel_credentials(
+                root_certificates=ca_cert,
+                private_key=client_key,
+                certificate_chain=client_cert
+            )
+            
+            channel = grpc.secure_channel(f'localhost:{config.daemon.grpc_port}', credentials)
+            stub = verdandi_pb2_grpc.FabricGraphServiceStub(channel)
+            
+            # Create the link
+            response = stub.CreateAudioLink(verdandi_pb2.CreateAudioLinkRequest(
+                node_a_id=args.node_a,
+                node_b_id=args.node_b,
+                params_json=json.dumps({
+                    'remote_host': args.host,
+                    'remote_port': args.port,
+                    'channels': args.channels
+                }),
+                create_voice_cmd_bundle=False
+            ))
+            
+            if response.success:
+                print(f"✓ Audio link created successfully")
+                print(f"  Link ID: {response.link_id}")
+                print(f"  {response.message}")
+            else:
+                print(f"✗ Failed to create audio link")
+                print(f"  {response.message}")
+            
+            channel.close()
+            return
+        
+        if args.list or not args.create_audio:
             links = session.query(FabricLink).all()
             
             if not links:
@@ -240,8 +292,39 @@ def main():
     parser_links.add_argument(
         "--list",
         action="store_true",
-        default=True,
         help="List all links",
+    )
+    parser_links.add_argument(
+        "--create-audio",
+        action="store_true",
+        help="Create an audio link",
+    )
+    parser_links.add_argument(
+        "--node-a",
+        type=str,
+        help="Source node ID (or hostname)",
+    )
+    parser_links.add_argument(
+        "--node-b",
+        type=str,
+        help="Target node ID (or hostname)",
+    )
+    parser_links.add_argument(
+        "--host",
+        type=str,
+        help="Target host IP address",
+    )
+    parser_links.add_argument(
+        "--port",
+        type=int,
+        default=4464,
+        help="Target port (default: 4464)",
+    )
+    parser_links.add_argument(
+        "--channels",
+        type=int,
+        default=2,
+        help="Number of audio channels (default: 2)",
     )
     parser_links.set_defaults(func=cmd_links)
     
