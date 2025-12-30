@@ -19,7 +19,8 @@ from PySide6.QtGui import QPainter, QPen, QColor, QBrush, QFont
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
-from verdandi_codex.models.fabric import FabricNode, FabricLink, LinkStatus
+from verdandi_codex.models.identity import Node
+from verdandi_codex.models.fabric import FabricLink, LinkStatus
 
 logger = logging.getLogger(__name__)
 
@@ -185,7 +186,7 @@ class FabricCanvas(QGraphicsView):
             session = self.database.get_session()
             
             # Get all nodes
-            nodes = session.query(FabricNode).all()
+            nodes = session.query(Node).all()
             node_map = {str(n.node_id): n for n in nodes}
             
             # Get all links
@@ -213,7 +214,7 @@ class FabricCanvas(QGraphicsView):
                     node_graphics = NodeGraphics(
                         node_id=str(node.node_id),
                         hostname=node.hostname,
-                        ip_address=node.ip_address or "unknown",
+                        ip_address=node.ip_last_seen or "unknown",
                         x=x,
                         y=y,
                         is_local=(str(node.node_id) == str(self.config.node.node_id))

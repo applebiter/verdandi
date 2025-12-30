@@ -35,6 +35,7 @@ class VerdandiHall(QMainWindow):
         self._init_ui()
         self._init_database()
         self._init_jack()
+        self._init_fabric_tab()  # Initialize fabric tab after database
         
     def _init_ui(self):
         """Initialize the user interface."""
@@ -62,8 +63,11 @@ class VerdandiHall(QMainWindow):
         # Tab 2: Local JACK Graph
         self.tabs.addTab(self._create_jack_tab(), "JACK Graph")
         
-        # Tab 3: Fabric Graph
-        self.tabs.addTab(self._create_fabric_tab(), "Fabric Graph")
+        # Tab 3: Fabric Graph (will be created after database init)
+        self.fabric_tab_placeholder = QWidget()
+        placeholder_layout = QVBoxLayout(self.fabric_tab_placeholder)
+        placeholder_layout.addWidget(QLabel("Loading fabric graph..."))
+        self.tabs.addTab(self.fabric_tab_placeholder, "Fabric Graph")
         
         # Status bar
         self.status_bar = QStatusBar()
@@ -130,6 +134,15 @@ class VerdandiHall(QMainWindow):
     def _create_fabric_tab(self):
         """Create the Fabric graph canvas tab."""
         return FabricCanvasWidget(self.config, self.db, parent=self)
+        
+    def _init_fabric_tab(self):
+        """Initialize fabric tab after database is ready."""
+        if self.db:
+            fabric_widget = self._create_fabric_tab()
+            # Replace placeholder with actual widget
+            index = self.tabs.indexOf(self.fabric_tab_placeholder)
+            self.tabs.removeTab(index)
+            self.tabs.insertTab(index, fabric_widget, "Fabric Graph")
         
     def _init_database(self):
         """Initialize database connection."""
