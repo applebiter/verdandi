@@ -8,13 +8,15 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QTabWidget, QLabel, QStatusBar, QPushButton, QMessageBox
+    QTabWidget, QLabel, QStatusBar, QPushButton, QMessageBox, QDockWidget,
+    QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QIcon
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
+from verdandi_codex.models.identity import Node
 from verdandi_hall.widgets import JackCanvas, JackClientManager, FabricCanvasWidget
 
 logger = logging.getLogger(__name__)
@@ -28,6 +30,7 @@ class VerdandiHall(QMainWindow):
         self.config = VerdandiConfig.load()
         self.db = None
         self.jack_manager = None
+        self.remote_jack_tabs = {}  # Track open remote JACK tabs by node_id
         
         self.setWindowTitle(f"Verdandi Hall - {self.config.node.hostname}")
         self.setGeometry(100, 100, 1400, 900)
@@ -36,6 +39,7 @@ class VerdandiHall(QMainWindow):
         self._init_database()
         self._init_jack()
         self._init_fabric_tab()  # Initialize fabric tab after database
+        self._init_node_list()  # Initialize node list dock
         
     def _init_ui(self):
         """Initialize the user interface."""
@@ -168,6 +172,157 @@ class VerdandiHall(QMainWindow):
         self.status_bar.showMessage("Refreshing...", 1000)
         # TODO: Query daemon status, update UI
         QTimer.singleShot(500, lambda: self.status_bar.showMessage("✓ Refreshed", 2000))
+    
+    def _init_node_list(self):
+        """Initialize the node list dock widget."""
+        # Create dock widget
+        dock = QDockWidget("Network Nodes", self)
+        dock.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        
+        # Create list widget
+        self.node_list = QListWidget()
+        self.node_list.itemDoubleClicked.connect(self._on_node_clicked)
+        dock.setWidget(self.node_list)
+        
+        # Add dock to left side
+        self.addDockWidget(Qt.LeftDockWidgetArea, dock)
+        
+        # Initial population
+        self._refresh_node_list()
+        
+        # Auto-refresh every 10 seconds
+        self.node_list_timer = QTimer(self)
+        self.node_list_timer.timeout.connect(self._refresh_node_list)
+        self.node_list_timer.start(10000)
+    
+    def _refresh_node_list(self):
+        """Refresh the list of discovered nodes."""
+        if not self.db:
+            return
+            
+        try:
+            session = self.db.get_session()
+            nodes = session.query(Node).order_by(Node.hostname).all()
+            session.close()
+            
+            # Clear and repopulate list
+            self.node_list.clear()
+            
+            for node in nodes:
+                is_local = node.node_id == self.config.node.node_id
+                status_icon = "🟢" if node.status == "online" else "🔴"
+                local_marker = " (local)" if is_local else ""
+                
+                item_text = f"{status_icon} {node.hostname}{local_marker}"
+                item = QListWidgetItem(item_text)
+                item.setData(Qt.UserRole, str(node.node_id))  # Store node_id as data
+                
+                # Color local node differently
+                if is_local:
+                    item.setForeground(Qt.darkGreen)
+                
+                self.node_list.addItem(item)
+                
+        except Exception as e:
+            logger.error("node_list_refresh_failed", error=str(e))
+    
+    def _on_node_clicked(self, item: QListWidgetItem):
+        """Handle node list item click - open remote JACK graph tab."""
+        node_id = item.data(Qt.UserRole)
+        
+        # Don't open remote tab for local node - already have JACK Graph tab
+        if node_id == self.config.node.node_id:
+            # Switch to existing JACK Graph tab
+            for i in range(self.tabs.count()):
+                if self.tabs.tabText(i) == "JACK Graph":
+                    self.tabs.setCurrentIndex(i)
+                    break
+            return
+        
+        # Check if tab already exists
+        if node_id in self.remote_jack_tabs:
+            tab_widget = self.remote_jack_tabs[node_id]
+            # Find and switch to existing tab
+            for i in range(self.tabs.count()):
+                if self.tabs.widget(i) == tab_widget:
+                    self.tabs.setCurrentIndex(i)
+                    return
+        
+        # Get node info from database
+        try:
+            session = self.db.get_session()
+            node = session.query(Node).filter_by(node_id=node_id).first()
+            session.close()
+            
+            if not node:
+                QMessageBox.warning(self, "Node Not Found", f"Node {node_id[:8]} not found in database.")
+                return
+            
+            # Create remote JACK tab
+            remote_tab = self._create_remote_jack_tab(node)
+            tab_name = f"{node.hostname} JACK"
+            tab_index = self.tabs.addTab(remote_tab, tab_name)
+            self.tabs.setCurrentIndex(tab_index)
+            
+            # Track the tab
+            self.remote_jack_tabs[node_id] = remote_tab
+            
+            self.status_bar.showMessage(f"Opened remote JACK graph for {node.hostname}", 3000)
+            
+        except Exception as e:
+            logger.error("open_remote_jack_failed", error=str(e), node_id=node_id)
+            QMessageBox.critical(self, "Error", f"Failed to open remote JACK graph: {e}")
+    
+    def _create_remote_jack_tab(self, node: Node):
+        """Create a tab for viewing remote node's JACK graph."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        # Header with node info
+        header = QHBoxLayout()
+        header.addWidget(QLabel(f"<h3>Remote JACK Graph: {node.hostname}</h3>"))
+        header.addWidget(QLabel(f"<code>{node.ip_last_seen}:{node.daemon_port}</code>"))
+        header.addStretch()
+        layout.addLayout(header)
+        
+        # Placeholder for actual remote JACK canvas
+        # TODO: Implement RemoteJackCanvas that queries via gRPC
+        placeholder = QLabel("Remote JACK graph visualization coming soon...\n\n"
+                           f"This will display JACK ports and connections from {node.hostname}\n"
+                           f"via gRPC connection to {node.ip_last_seen}:{node.daemon_port}")
+        placeholder.setAlignment(Qt.AlignCenter)
+        placeholder.setStyleSheet("QLabel { color: gray; padding: 40px; }")
+        layout.addWidget(placeholder)
+        
+        # Action buttons
+        button_layout = QHBoxLayout()
+        
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(lambda: self.status_bar.showMessage(f"Refreshing {node.hostname}...", 2000))
+        button_layout.addWidget(refresh_btn)
+        
+        close_btn = QPushButton("Close Tab")
+        close_btn.clicked.connect(lambda: self._close_remote_jack_tab(node.node_id))
+        button_layout.addWidget(close_btn)
+        
+        button_layout.addStretch()
+        layout.addLayout(button_layout)
+        
+        return widget
+    
+    def _close_remote_jack_tab(self, node_id: str):
+        """Close a remote JACK tab."""
+        if node_id in self.remote_jack_tabs:
+            tab_widget = self.remote_jack_tabs[node_id]
+            
+            # Find and remove tab
+            for i in range(self.tabs.count()):
+                if self.tabs.widget(i) == tab_widget:
+                    self.tabs.removeTab(i)
+                    break
+            
+            # Remove from tracking
+            del self.remote_jack_tabs[node_id]
 
 
 def main():
