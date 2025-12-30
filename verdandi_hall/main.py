@@ -15,7 +15,7 @@ from PySide6.QtGui import QIcon
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
-from verdandi_hall.widgets import JackCanvas, JackClientManager
+from verdandi_hall.widgets import JackCanvas, JackClientManager, FabricCanvasWidget
 
 logger = logging.getLogger(__name__)
 
@@ -62,13 +62,8 @@ class VerdandiHall(QMainWindow):
         # Tab 2: Local JACK Graph
         self.tabs.addTab(self._create_jack_tab(), "JACK Graph")
         
-        # Tab 3: Fabric Graph (to be implemented)
-        fabric_tab = QWidget()
-        fabric_layout = QVBoxLayout(fabric_tab)
-        fabric_layout.addWidget(QLabel("<h3>Fabric Network</h3>"))
-        fabric_layout.addWidget(QLabel("Multi-node view coming next..."))
-        fabric_layout.addStretch()
-        self.tabs.addTab(fabric_tab, "Fabric Graph")
+        # Tab 3: Fabric Graph
+        self.tabs.addTab(self._create_fabric_tab(), "Fabric Graph")
         
         # Status bar
         self.status_bar = QStatusBar()
@@ -131,6 +126,10 @@ class VerdandiHall(QMainWindow):
         layout.addWidget(self.jack_canvas)
         
         return widget
+        
+    def _create_fabric_tab(self):
+        """Create the Fabric graph canvas tab."""
+        return FabricCanvasWidget(self.config, self.db, parent=self)
         
     def _init_database(self):
         """Initialize database connection."""

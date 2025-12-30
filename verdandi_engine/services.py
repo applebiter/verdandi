@@ -194,6 +194,8 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
                 remote_host = params.get("remote_host") if params else None
                 remote_port = params.get("remote_port", 4464) if params else 4464
                 channels = params.get("channels", 2) if params else 2
+                sample_rate = params.get("sample_rate", 48000) if params else 48000
+                buffer_size = params.get("buffer_size", 128) if params else 128
                 
                 if remote_host:
                     import asyncio
@@ -209,7 +211,9 @@ class FabricGraphServicer(verdandi_pb2_grpc.FabricGraphServiceServicer):
                                     link_id=str(link.link_id),
                                     remote_host=remote_host,
                                     remote_port=remote_port,
-                                    channels=channels
+                                    channels=channels,
+                                    sample_rate=sample_rate,
+                                    buffer_size=buffer_size
                                 )
                             )
                             

@@ -94,7 +94,9 @@ class JackTripManager:
         remote_host: str,
         remote_port: int,
         channels: int = 2,
-        mode: str = "p2p"
+        mode: str = "p2p",
+        sample_rate: int = 48000,
+        buffer_size: int = 128
     ) -> bool:
         """
         Create an audio link by spawning a JackTrip client.
@@ -105,6 +107,8 @@ class JackTripManager:
             remote_port: Remote JackTrip port (UDP)
             channels: Number of audio channels (default 2)
             mode: "p2p" for peer-to-peer, "hub" for hub-client
+            sample_rate: JACK sample rate in Hz (must match all nodes, default 48000)
+            buffer_size: JACK buffer size in frames (must match all nodes, default 128)
             
         Returns:
             True if session started successfully
@@ -129,6 +133,8 @@ class JackTripManager:
             "-n", str(channels),
             "--clientname", jack_client_name,
             "--udprt",  # Use UDP with real-time thread
+            "-b", str(buffer_size),  # Buffer size (queue buffer length)
+            # Note: JackTrip doesn't have a sample rate flag - it uses JACK's sample rate
         ]
         
         # Add port if non-default

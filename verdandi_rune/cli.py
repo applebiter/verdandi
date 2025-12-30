@@ -184,7 +184,9 @@ def cmd_links(args):
                 params_json=json.dumps({
                     'remote_host': args.host,
                     'remote_port': args.port,
-                    'channels': args.channels
+                    'channels': args.channels,
+                    'sample_rate': args.sample_rate,
+                    'buffer_size': args.buffer_size
                 }),
                 create_voice_cmd_bundle=False
             ))
@@ -325,6 +327,18 @@ def main():
         type=int,
         default=2,
         help="Number of audio channels (default: 2)",
+    )
+    parser_links.add_argument(
+        "--sample-rate",
+        type=int,
+        default=48000,
+        help="JACK sample rate in Hz - must match all nodes (default: 48000)",
+    )
+    parser_links.add_argument(
+        "--buffer-size",
+        type=int,
+        default=128,
+        help="JACK buffer size in frames - must match all nodes (default: 128)",
     )
     parser_links.set_defaults(func=cmd_links)
     
