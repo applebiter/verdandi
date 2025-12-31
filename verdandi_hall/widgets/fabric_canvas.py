@@ -1075,14 +1075,29 @@ class FabricCanvasWidget(QWidget):
         self._populate_hub_nodes()
         hub_layout.addWidget(self.hub_node_combo)
         
-        hub_config_btn = QPushButton("⚙️ Hub Settings")
+        self.start_hub_btn = QPushButton("▶️ Start Hub")
+        self.start_hub_btn.clicked.connect(self._on_start_hub)
+        hub_layout.addWidget(self.start_hub_btn)
+        
+        self.stop_hub_btn = QPushButton("⏹️ Stop Hub")
+        self.stop_hub_btn.clicked.connect(self._on_stop_hub)
+        self.stop_hub_btn.setEnabled(False)
+        hub_layout.addWidget(self.stop_hub_btn)
+        
+        hub_config_btn = QPushButton("⚙️ Settings")
         hub_config_btn.clicked.connect(self._on_configure_hub)
         hub_layout.addWidget(hub_config_btn)
         
-        hub_layout.addWidget(QLabel("<i>(All links will use this hub)</i>"))
         hub_layout.addStretch()
         
         layout.addLayout(hub_layout)
+        
+        # Track hub state
+        self.hub_running = False
+        self.hub_node_id = None
+        self.hub_inactivity_timer = QTimer(self)
+        self.hub_inactivity_timer.timeout.connect(self._on_hub_inactivity)
+        self.hub_inactivity_timeout = 300000  # 5 minutes in ms
         
         # Store hub configuration
         self.hub_autopatch_mode = 1  # Default: full mix
@@ -1182,4 +1197,79 @@ class FabricCanvasWidget(QWidget):
         fabric_count = len(self.canvas.fabric_nodes)
         link_count = len(self.canvas.link_nodes)
         wire_count = len(self.canvas.wires)
-        self.status_label.setText(f"{fabric_count} nodes, {link_count} links, {wire_count} connections")
+        hub_status = "HUB RUNNING" if self.hub_running else "hub idle"
+        self.status_label.setText(f"{fabric_count} nodes, {link_count} links, {wire_count} connections | {hub_status}")
+    
+    def _on_start_hub(self):
+        """Start JackTrip hub server on selected node."""
+        selected_idx = self.hub_node_combo.currentIndex()
+        if selected_idx < 0:
+            QMessageBox.warning(self, "No Hub Selected", "Please select a node to run as hub.")
+            return
+        
+        self.hub_node_id = self.hub_node_combo.itemData(selected_idx)
+        
+        # TODO: Call gRPC service to start JackTrip hub on selected node
+        # For now, just update UI state
+        logger.info(f"Starting JackTrip hub on node {self.hub_node_id}")
+        
+        # Simulated hub start (will be replaced with actual gRPC call)
+        try:
+            # Get node info
+            with self.database.get_session() as session:
+                from verdandi_codex.models.identity import Node
+                node = session.query(Node).filter_by(node_id=self.hub_node_id).first()
+                if not node:
+                    QMessageBox.critical(self, "Error", "Selected node not found in database.")
+                    return
+                
+                hostname = node.hostname
+            
+            # Update UI
+            self.hub_running = True
+            self.start_hub_btn.setEnabled(False)
+            self.stop_hub_btn.setEnabled(True)
+            self.hub_node_combo.setEnabled(False)
+            
+            # Start inactivity timer
+            self.hub_inactivity_timer.start(self.hub_inactivity_timeout)
+            
+            self._update_status()
+            QMessageBox.information(self, "Hub Started", 
+                                  f"JackTrip hub server started on {hostname}.\n\n"
+                                  f"Clients can now connect to this node.")
+            
+        except Exception as e:
+            logger.error(f"Failed to start hub: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to start hub: {e}")
+    
+    def _on_stop_hub(self):
+        """Stop JackTrip hub server."""
+        if not self.hub_running:
+            return
+        
+        # TODO: Call gRPC service to stop JackTrip hub
+        logger.info(f"Stopping JackTrip hub on node {self.hub_node_id}")
+        
+        # Update UI
+        self.hub_running = False
+        self.hub_node_id = None
+        self.start_hub_btn.setEnabled(True)
+        self.stop_hub_btn.setEnabled(False)
+        self.hub_node_combo.setEnabled(True)
+        self.hub_inactivity_timer.stop()
+        
+        self._update_status()
+        QMessageBox.information(self, "Hub Stopped", "JackTrip hub server has been stopped.")
+    
+    def _on_hub_inactivity(self):
+        """Auto-stop hub after inactivity timeout."""
+        if self.hub_running and len(self.canvas.wires) == 0:
+            logger.info("Auto-stopping hub due to inactivity")
+            self._on_stop_hub()
+    
+    def closeEvent(self, event):
+        """Handle widget close - stop hub if running."""
+        if self.hub_running:
+            self._on_stop_hub()
+        super().closeEvent(event)

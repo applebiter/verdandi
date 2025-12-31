@@ -665,10 +665,19 @@ class GraphCanvas(QGraphicsView):
 class NodeCanvasWidget(QWidget):
     """Controller - bridges JACK manager and GraphModel."""
     
-    def __init__(self, jack_manager: Optional[JackClientManager] = None, parent=None):
+    def __init__(self, jack_manager: Optional[JackClientManager] = None, parent=None, node_id: str = None):
         super().__init__(parent)
         self.jack_manager = jack_manager
-        self.presets_dir = Path.home() / ".config" / "skeleton-app" / "jack-presets"
+        self.node_id = node_id  # For remote nodes, stores the node_id to use for state
+        
+        # Determine presets directory based on node_id
+        if node_id:
+            # Remote node - store state separately per node
+            self.presets_dir = Path.home() / ".config" / "verdandi" / "remote-jack-presets" / node_id[:8]
+        else:
+            # Local node
+            self.presets_dir = Path.home() / ".config" / "skeleton-app" / "jack-presets"
+        
         self.presets_dir.mkdir(parents=True, exist_ok=True)
         self.last_preset_file = self.presets_dir / ".last_preset"
         

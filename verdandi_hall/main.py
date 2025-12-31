@@ -30,7 +30,6 @@ class VerdandiHall(QMainWindow):
         self.config = VerdandiConfig.load()
         self.db = None
         self.jack_manager = None
-        self.remote_jack_tabs = {}  # Track open remote JACK tabs by node_id
         
         self.setWindowTitle(f"Verdandi Hall - {self.config.node.hostname}")
         self.setGeometry(100, 100, 1400, 900)
@@ -65,9 +64,14 @@ class VerdandiHall(QMainWindow):
         self.tabs.addTab(self._create_status_tab(), "Status")
         
         # Tab 2: Local JACK Graph
-        self.tabs.addTab(self._create_jack_tab(), "JACK Graph")
+        self.tabs.addTab(self._create_jack_tab(), "Local JACK")
         
-        # Tab 3: Fabric Graph (will be created after database init)
+        # Tab 3: Remote JACK Graph (empty initially, populated when node selected)
+        self.remote_jack_canvas = None
+        self.current_remote_node_id = None
+        self.tabs.addTab(self._create_remote_jack_tab(), "Remote JACK")
+        
+        # Tab 4: Fabric Graph (will be created after database init)
         self.fabric_tab_placeholder = QWidget()
         placeholder_layout = QVBoxLayout(self.fabric_tab_placeholder)
         placeholder_layout.addWidget(QLabel("Loading fabric graph..."))
@@ -132,6 +136,26 @@ class VerdandiHall(QMainWindow):
         # Create canvas (jack_manager will be set after initialization)
         self.jack_canvas = JackCanvas(jack_manager=None, parent=self)
         layout.addWidget(self.jack_canvas)
+        
+        return widget
+    
+    def _create_remote_jack_tab(self):
+        """Create the remote JACK graph canvas tab."""
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+        
+        # Header with instructions and current node info
+        header = QHBoxLayout()
+        self.remote_node_label = QLabel("<i>Select a node from the list on the left to view its JACK graph</i>")
+        header.addWidget(self.remote_node_label)
+        header.addStretch()
+        layout.addLayout(header)
+        
+        # Container for the remote canvas (will be created when node selected)
+        self.remote_canvas_container = QWidget()
+        remote_container_layout = QVBoxLayout(self.remote_canvas_container)
+        remote_container_layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.remote_canvas_container)
         
         return widget
         
@@ -243,28 +267,32 @@ class VerdandiHall(QMainWindow):
             logger.error("node_list_refresh_failed", error=str(e))
     
     def _on_node_clicked(self, item: QListWidgetItem):
-        """Handle node list item click - open remote JACK graph tab."""
+        """Handle node list item click - switch to Remote JACK tab and load that node's graph."""
         node_id = item.data(Qt.UserRole)
         
-        # Don't open remote tab for local node - already have JACK Graph tab
+        # If local node, switch to Local JACK tab
         if node_id == self.config.node.node_id:
-            # Switch to existing JACK Graph tab
             for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == "JACK Graph":
+                if self.tabs.tabText(i) == "Local JACK":
                     self.tabs.setCurrentIndex(i)
                     break
             return
         
-        # Check if tab already exists
-        if node_id in self.remote_jack_tabs:
-            tab_widget = self.remote_jack_tabs[node_id]
-            # Find and switch to existing tab
-            for i in range(self.tabs.count()):
-                if self.tabs.widget(i) == tab_widget:
-                    self.tabs.setCurrentIndex(i)
-                    return
+        # Switch to Remote JACK tab and load this node's graph
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i) == "Remote JACK":
+                self.tabs.setCurrentIndex(i)
+                break
         
-        # Get node info from database
+        # Load the remote node's JACK graph
+        self._load_remote_jack_graph(node_id)
+    
+    def _load_remote_jack_graph(self, node_id: str):
+        """Load and display a remote node's JACK graph in the Remote JACK tab."""
+        if node_id == self.current_remote_node_id and self.remote_jack_canvas:
+            # Already showing this node
+            return
+        
         try:
             session = self.db.get_session()
             node = session.query(Node).filter_by(node_id=node_id).first()
@@ -274,108 +302,53 @@ class VerdandiHall(QMainWindow):
                 QMessageBox.warning(self, "Node Not Found", f"Node {node_id[:8]} not found in database.")
                 return
             
-            # Create remote JACK tab
-            remote_tab = self._create_remote_jack_tab(node)
-            tab_name = f"{node.hostname} JACK"
-            tab_index = self.tabs.addTab(remote_tab, tab_name)
-            self.tabs.setCurrentIndex(tab_index)
+            # Update header
+            self.remote_node_label.setText(f"<b>Remote JACK Graph:</b> {node.hostname} ({node.ip_last_seen})")
             
-            # Track the tab
-            self.remote_jack_tabs[node_id] = remote_tab
+            # Clear existing canvas if any
+            if self.remote_jack_canvas:
+                self.remote_canvas_container.layout().removeWidget(self.remote_jack_canvas)
+                self.remote_jack_canvas.deleteLater()
+                self.remote_jack_canvas = None
             
-            self.status_bar.showMessage(f"Opened remote JACK graph for {node.hostname}", 3000)
+            # Create new canvas for this node
+            # For now, create a local canvas that will be populated with remote data
+            # TODO: Implement RemoteJackCanvas that queries via gRPC and saves per-node state
+            self.remote_jack_canvas = JackCanvas(jack_manager=None, parent=self, node_id=node_id)
+            self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
+            self.current_remote_node_id = node_id
+            
+            # Load saved state for this node
+            self._load_remote_canvas_state(node_id)
+            
+            self.status_bar.showMessage(f"Loaded remote JACK graph for {node.hostname}", 3000)
             
         except Exception as e:
-            logger.error("open_remote_jack_failed", error=str(e), node_id=node_id)
-            QMessageBox.critical(self, "Error", f"Failed to open remote JACK graph: {e}")
+            logger.error("load_remote_jack_failed", error=str(e), node_id=node_id)
+            QMessageBox.critical(self, "Error", f"Failed to load remote JACK graph: {e}")
     
-    def _create_remote_jack_tab(self, node: Node):
-        """Create a tab for viewing remote node's JACK graph."""
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        
-        # Header with node info
-        header = QHBoxLayout()
-        header.addWidget(QLabel(f"<h3>Remote JACK Graph: {node.hostname}</h3>"))
-        header.addWidget(QLabel(f"<code>{node.ip_last_seen}:{node.daemon_port}</code>"))
-        header.addStretch()
-        layout.addLayout(header)
-        
-        # Placeholder for actual remote JACK canvas
-        # TODO: Implement RemoteJackCanvas that queries via gRPC
-        placeholder = QLabel("Remote JACK graph visualization coming soon...\n\n"
-                           f"This will display JACK ports and connections from {node.hostname}\n"
-                           f"via gRPC connection to {node.ip_last_seen}:{node.daemon_port}")
-        placeholder.setAlignment(Qt.AlignCenter)
-        placeholder.setStyleSheet("QLabel { color: gray; padding: 40px; }")
-        layout.addWidget(placeholder)
-        
-        # Action buttons
-        button_layout = QHBoxLayout()
-        
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.clicked.connect(lambda: self.status_bar.showMessage(f"Refreshing {node.hostname}...", 2000))
-        button_layout.addWidget(refresh_btn)
-        
-        close_btn = QPushButton("Close Tab")
-        close_btn.clicked.connect(lambda: self._close_remote_jack_tab(node.node_id))
-        button_layout.addWidget(close_btn)
-        
-        button_layout.addStretch()
-        layout.addLayout(button_layout)
-        
-        return widget
+    def _load_remote_canvas_state(self, node_id: str):
+        """Load saved canvas state (positions, connections) for a remote node."""
+        # TODO: Load from database or file
+        # For now, this is a placeholder
+        logger.info(f"Loading canvas state for remote node {node_id}")
+        pass
     
-    def _close_remote_jack_tab(self, node_id: str):
-        """Close a remote JACK tab."""
-        if node_id in self.remote_jack_tabs:
-            tab_widget = self.remote_jack_tabs[node_id]
-            
-            # Find and remove tab
-            for i in range(self.tabs.count()):
-                if self.tabs.widget(i) == tab_widget:
-                    self.tabs.removeTab(i)
-                    break
-            
-            # Remove from tracking
-            del self.remote_jack_tabs[node_id]
-    
+    def _save_remote_canvas_state(self, node_id: str):
+        """Save canvas state (positions, connections) for a remote node."""
+        # TODO: Save to database or file
+        # For now, this is a placeholder
+        logger.info(f"Saving canvas state for remote node {node_id}")
+        pass
     def _on_fabric_node_clicked(self, node_id: str):
-        """Handle fabric canvas node double-click."""
-        # Find node info and open remote JACK tab
-        try:
-            session = self.db.get_session()
-            node = session.query(Node).filter_by(node_id=node_id).first()
-            session.close()
-            
-            if not node:
+        """Handle fabric canvas node double-click - load that node's JACK graph."""
+        # Use same logic as node list click
+        # Find the corresponding list item to trigger selection
+        for i in range(self.node_list.count()):
+            item = self.node_list.item(i)
+            if item.data(Qt.UserRole) == node_id:
+                self._on_node_clicked(item)
                 return
-            
-            # Use same logic as node list click
-            if node_id == self.config.node.node_id:
-                # Switch to JACK Graph tab
-                for i in range(self.tabs.count()):
-                    if self.tabs.tabText(i) == "JACK Graph":
-                        self.tabs.setCurrentIndex(i)
-                        break
-            else:
-                # Open or switch to remote JACK tab
-                if node_id in self.remote_jack_tabs:
-                    tab_widget = self.remote_jack_tabs[node_id]
-                    for i in range(self.tabs.count()):
-                        if self.tabs.widget(i) == tab_widget:
-                            self.tabs.setCurrentIndex(i)
-                            return
-                else:
-                    remote_tab = self._create_remote_jack_tab(node)
-                    tab_name = f"{node.hostname} JACK"
-                    tab_index = self.tabs.addTab(remote_tab, tab_name)
-                    self.tabs.setCurrentIndex(tab_index)
-                    self.remote_jack_tabs[node_id] = remote_tab
-                    self.status_bar.showMessage(f"Opened remote JACK graph for {node.hostname}", 3000)
-                    
-        except Exception as e:
-            logger.error("fabric_node_click_failed", error=str(e), node_id=node_id)
 
 
 def main():
