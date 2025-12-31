@@ -511,20 +511,55 @@ class FabricCanvas(QGraphicsView):
         """Update link node connections in database when wires are created."""
         link_node = None
         fabric_node = None
-        is_output_connection = False  # Is fabric_node connected to link's output?
         
         # Determine which item is the link node and which is the fabric node
         if isinstance(from_item, LinkNodeItem) and isinstance(to_item, FabricNodeItem):
             link_node = from_item
             fabric_node = to_item
-            is_output_connection = True  # Link output -> Fabric input
         elif isinstance(from_item, FabricNodeItem) and isinstance(to_item, LinkNodeItem):
             link_node = to_item
             fabric_node = from_item
-            is_output_connection = False  # Fabric output -> Link input
         
         if not link_node or not fabric_node:
             return  # Not a link-fabric connection
+        
+        # For HUB mode, show client configuration dialog
+        from PySide6.QtWidgets import QDialog, QFormLayout, QSpinBox, QDialogButtonBox, QLabel
+        
+        dialog = QDialog()
+        dialog.setWindowTitle(f"Configure Client Connection")
+        layout = QFormLayout(dialog)
+        
+        layout.addRow(QLabel(f"<b>Client:</b> {fabric_node.node.hostname}"))
+        layout.addRow(QLabel(f"<b>Hub:</b> {link_node.link_data.link_id[:8]}"))
+        layout.addRow(QLabel("<i>Configure how many channels this client will send/receive</i>"))
+        
+        # Send Channels
+        send_channels_spin = QSpinBox()
+        send_channels_spin.setRange(1, 8)
+        send_channels_spin.setValue(2)
+        layout.addRow("Send Channels (to hub):", send_channels_spin)
+        
+        # Receive Channels
+        receive_channels_spin = QSpinBox()
+        receive_channels_spin.setRange(1, 8)
+        receive_channels_spin.setValue(2)
+        layout.addRow("Receive Channels (from hub):", receive_channels_spin)
+        
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        if dialog.exec() != QDialog.Accepted:
+            # User cancelled - remove the wire
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self.delete_wire(self.wires[-1]))
+            return
+        
+        send_channels = send_channels_spin.value()
+        receive_channels = receive_channels_spin.value()
         
         # Update the link in the database
         try:
@@ -540,24 +575,21 @@ class FabricCanvas(QGraphicsView):
                 # Load params
                 params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
                 
-                # Update connection based on direction
-                if is_output_connection:
-                    # Link output -> Fabric node input (link is sending TO fabric_node)
-                    link.node_b_id = fabric_node.node.node_id
-                    params['target_node_id'] = fabric_node.node.node_id
-                    logger.info(f"Set link {link_node.link_data.link_id[:8]} output to {fabric_node.node.hostname}")
-                else:
-                    # Fabric node output -> Link input (fabric_node is sending TO link)
-                    link.node_a_id = fabric_node.node.node_id
-                    params['source_node_id'] = fabric_node.node.node_id
-                    logger.info(f"Set link {link_node.link_data.link_id[:8]} input from {fabric_node.node.hostname}")
+                # Add client to clients dict
+                client_node_id = str(fabric_node.node.node_id)
+                if 'clients' not in params:
+                    params['clients'] = {}
                 
-                # Check if both ends are now connected
-                if 'source_node_id' in params and 'target_node_id' in params:
-                    # Both connected, remove _unconnected flag and set DESIRED_UP
-                    params.pop('_unconnected', None)
-                    link.status = "DESIRED_UP"
-                    logger.info(f"Link {link_node.link_data.link_id[:8]} fully connected, status -> DESIRED_UP")
+                params['clients'][client_node_id] = {
+                    "send_channels": send_channels,
+                    "receive_channels": receive_channels,
+                    "hostname": fabric_node.node.hostname
+                }
+                
+                # Hub server is already DESIRED_UP, this just adds a client
+                link.params_json = json.dumps(params)
+                session.commit()
+                logger.info(f"Added client {fabric_node.node.hostname} to hub {link_node.link_data.link_id[:8]}: {send_channels}→{receive_channels}ch")
                 
                 link.params_json = json.dumps(params)
                 session.commit()
@@ -569,23 +601,20 @@ class FabricCanvas(QGraphicsView):
         # Determine if this involves a link node
         link_node = None
         fabric_node = None
-        is_output_connection = False
         
         if isinstance(wire.from_item, LinkNodeItem) and isinstance(wire.to_item, FabricNodeItem):
             link_node = wire.from_item
             fabric_node = wire.to_item
-            is_output_connection = True
         elif isinstance(wire.from_item, FabricNodeItem) and isinstance(wire.to_item, LinkNodeItem):
             link_node = wire.to_item
             fabric_node = wire.from_item
-            is_output_connection = False
         
         # Remove wire from scene
         self.scene.removeItem(wire)
         if wire in self.wires:
             self.wires.remove(wire)
         
-        # Update link status if this was a link connection
+        # Update link if this was a client connection
         if link_node and fabric_node:
             try:
                 with self.database.get_session() as session:
@@ -600,22 +629,13 @@ class FabricCanvas(QGraphicsView):
                     # Load params
                     params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
                     
-                    # Remove connection based on direction
-                    if is_output_connection:
-                        # Removing link output connection
-                        params.pop('target_node_id', None)
-                        logger.info(f"Removed link {link_node.link_data.link_id[:8]} output connection")
-                    else:
-                        # Removing link input connection
-                        params.pop('source_node_id', None)
-                        logger.info(f"Removed link {link_node.link_data.link_id[:8]} input connection")
+                    # Remove client from clients dict
+                    client_node_id = str(fabric_node.node.node_id)
+                    if 'clients' in params and client_node_id in params['clients']:
+                        del params['clients'][client_node_id]
+                        logger.info(f"Removed client {fabric_node.node.hostname} from hub {link_node.link_data.link_id[:8]}")
                     
-                    # If either end is now disconnected, mark as unconnected and DESIRED_DOWN
-                    if 'source_node_id' not in params or 'target_node_id' not in params:
-                        params['_unconnected'] = True
-                        link.status = "DESIRED_DOWN"
-                        logger.info(f"Link {link_node.link_data.link_id[:8]} disconnected, status -> DESIRED_DOWN")
-                    
+                    # Hub server stays DESIRED_UP even with no clients (ready for connections)
                     link.params_json = json.dumps(params)
                     session.commit()
             except Exception as e:
@@ -725,28 +745,62 @@ class FabricCanvas(QGraphicsView):
                 self.scene.removeItem(wire)
             self.wires.clear()
             
-            # Create wires for P2P links (even partially connected ones)
+            # Create wires based on link mode
             for link_node in self.link_nodes.values():
-                if link_node.link_data.mode == 'P2P':
-                    # Get connection info from database
-                    with self.database.get_session() as session:
-                        link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
-                        if link:
-                            params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
-                            src_id = params.get('source_node_id')
-                            tgt_id = params.get('target_node_id')
-                            
-                            # Create wire from source to link input (if source is connected)
-                            if src_id and src_id in self.fabric_nodes:
-                                src_node = self.fabric_nodes[src_id]
-                                wire1 = ConnectionWire(
-                                    src_node, link_node,
-                                    from_port=src_node.output_port,
+                # Get connection info from database
+                with self.database.get_session() as session:
+                    link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
+                    if not link:
+                        continue
+                    
+                    params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
+                    mode = params.get('mode', 'P2P')
+                    
+                    if mode == 'HUB':
+                        # Hub mode: create wire from link to hub node, and from each client to link
+                        hub_node_id = params.get('hub_node_id')
+                        if hub_node_id and hub_node_id in self.fabric_nodes:
+                            hub_node = self.fabric_nodes[hub_node_id]
+                            # Wire from link output to hub input (hub is receiving)
+                            wire_hub = ConnectionWire(
+                                link_node, hub_node,
+                                from_port=link_node.output_port,
+                                to_port=hub_node.input_port,
+                                parent_canvas=self
+                            )
+                            self.scene.addItem(wire_hub)
+                            self.wires.append(wire_hub)
+                        
+                        # Wire from each client to link input
+                        clients = params.get('clients', {})
+                        for client_node_id in clients.keys():
+                            if client_node_id in self.fabric_nodes:
+                                client_node = self.fabric_nodes[client_node_id]
+                                wire_client = ConnectionWire(
+                                    client_node, link_node,
+                                    from_port=client_node.output_port,
                                     to_port=link_node.input_port,
                                     parent_canvas=self
                                 )
-                                self.scene.addItem(wire1)
-                                self.wires.append(wire1)
+                                self.scene.addItem(wire_client)
+                                self.wires.append(wire_client)
+                    
+                    elif mode == 'P2P':
+                        # P2P mode: wire from source to link, link to target
+                        src_id = params.get('source_node_id')
+                        tgt_id = params.get('target_node_id')
+                        
+                        # Create wire from source to link input (if source is connected)
+                        if src_id and src_id in self.fabric_nodes:
+                            src_node = self.fabric_nodes[src_id]
+                            wire1 = ConnectionWire(
+                                src_node, link_node,
+                                from_port=src_node.output_port,
+                                to_port=link_node.input_port,
+                                parent_canvas=self
+                            )
+                            self.scene.addItem(wire1)
+                            self.wires.append(wire1)
                             
                             # Create wire from link output to target (if target is connected)
                             if tgt_id and tgt_id in self.fabric_nodes:
@@ -781,23 +835,13 @@ class FabricCanvas(QGraphicsView):
         
         # Show configuration dialog
         dialog = QDialog()
-        dialog.setWindowTitle("Add Link Node")
+        dialog.setWindowTitle("Add Client Link")
         layout = QFormLayout(dialog)
         
         # Display selected hub (read-only)
-        layout.addRow(QLabel(f"<b>Hub Mode</b> - Using hub: {hub_node_name}"))
-        
-        # Send Channels
-        send_channels_spin = QSpinBox()
-        send_channels_spin.setRange(1, 8)
-        send_channels_spin.setValue(2)
-        layout.addRow("Send Channels:", send_channels_spin)
-        
-        # Receive Channels
-        receive_channels_spin = QSpinBox()
-        receive_channels_spin.setRange(1, 8)
-        receive_channels_spin.setValue(2)
-        layout.addRow("Receive Channels:", receive_channels_spin)
+        layout.addRow(QLabel(f"<b>Hub Server Node</b>"))
+        layout.addRow(QLabel(f"Hub: {hub_node_name}"))
+        layout.addRow(QLabel("<i>This creates a hub server. Connect clients by dragging wires from other nodes.</i>"))
         
         # Buttons
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -811,16 +855,15 @@ class FabricCanvas(QGraphicsView):
         # Get JACK audio settings from parent widget
         sample_rate = 48000
         buffer_size = 256
-        if hasattr(self.parent(), 'sample_rate'):
-            sample_rate = self.parent().sample_rate
-        if hasattr(self.parent(), 'buffer_size'):
-            buffer_size = self.parent().buffer_size
+        parent = self.parentWidget()
+        if parent and hasattr(parent, 'sample_rate'):
+            sample_rate = parent.sample_rate
+        if parent and hasattr(parent, 'buffer_size'):
+            buffer_size = parent.buffer_size
         
         # Generate link ID
         link_id = str(uuid.uuid4())
         mode = "HUB"  # Always HUB mode now
-        send_channels = send_channels_spin.value()
-        receive_channels = receive_channels_spin.value()
         
         # Store in database
         try:
@@ -835,49 +878,40 @@ class FabricCanvas(QGraphicsView):
                     session.add(graph)
                     session.flush()  # Get graph_id
                 
-                # Create link with null node connections (user will connect via drag)
-                # Use local node as both endpoints for now (required by DB, but marked as unconnected)
+                # Get hub node from database
                 from verdandi_codex.models.identity import Node
-                import socket
-                
-                local_hostname = socket.gethostname()
-                local_node = session.query(Node).filter_by(hostname=local_hostname).first()
-                if not local_node:
-                    # Fallback to first node if hostname doesn't match
-                    local_node = session.query(Node).first()
-                if not local_node:
-                    logger.error("No nodes found in database")
+                hub_node = session.query(Node).filter_by(node_id=hub_node_id).first()
+                if not hub_node:
+                    logger.error("Hub node not found in database")
                     return
                 
-                # Hub node already validated and stored in hub_node_id variable
-                
+                # Create hub server link - node_a is the hub, node_b unused
+                # Clients will be stored in params_json["clients"] dict
                 link = FabricLink(
                     link_id=link_id,
                     graph_id=graph.graph_id,
                     link_type=LinkType.AUDIO_JACKTRIP,
-                    node_a_id=local_node.node_id,
-                    node_b_id=local_node.node_id,
-                    status="DESIRED_DOWN",
+                    node_a_id=hub_node.node_id,  # Hub node
+                    node_b_id=hub_node.node_id,  # Unused
+                    status="DESIRED_UP",  # Hub server should start immediately
                     params_json=json.dumps({
                         "mode": mode,
-                        "send_channels": send_channels,
-                        "receive_channels": receive_channels,
                         "sample_rate": sample_rate,
                         "buffer_size": buffer_size,
                         "x": x,
                         "y": y,
                         "hub_node_id": hub_node_id,
-                        "_unconnected": True  # Mark as not yet configured
+                        "clients": {}  # Will store {"client_node_id": {"send_channels": 2, "receive_channels": 2}}
                     })
                 )
                 session.add(link)
                 session.commit()
-                logger.info(f"Created link in database: {link_id[:8]}, {mode}, {send_channels}→{receive_channels}ch")
+                logger.info(f"Created hub server link in database: {link_id[:8]}")
         except Exception as e:
             logger.error(f"Failed to create link: {e}", exc_info=True)
             return
         
-        # Refresh to show new link
+        # Refresh to show new link with wire to hub
         self.refresh()
     
     def configure_link_node(self, link_node: LinkNodeItem):
@@ -1040,10 +1074,19 @@ class FabricCanvasWidget(QWidget):
         self.hub_node_combo = QComboBox()
         self._populate_hub_nodes()
         hub_layout.addWidget(self.hub_node_combo)
+        
+        hub_config_btn = QPushButton("⚙️ Hub Settings")
+        hub_config_btn.clicked.connect(self._on_configure_hub)
+        hub_layout.addWidget(hub_config_btn)
+        
         hub_layout.addWidget(QLabel("<i>(All links will use this hub)</i>"))
         hub_layout.addStretch()
         
         layout.addLayout(hub_layout)
+        
+        # Store hub configuration
+        self.hub_autopatch_mode = 1  # Default: full mix
+        self.hub_include_server = True
         
         # Controls
         controls = QHBoxLayout()
@@ -1086,6 +1129,46 @@ class FabricCanvasWidget(QWidget):
         self.canvas.refresh()
         self._populate_hub_nodes()
         self._update_status()
+    
+    def _on_configure_hub(self):
+        """Show hub server configuration dialog."""
+        from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QCheckBox, QDialogButtonBox, QLabel
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Hub Server Configuration")
+        layout = QFormLayout(dialog)
+        
+        layout.addRow(QLabel("<b>JackTrip Hub Server Settings</b>"))
+        layout.addRow(QLabel("These settings apply to the hub server that all clients connect to."))
+        layout.addRow(QLabel(""))
+        
+        # Autopatch mode
+        autopatch_combo = QComboBox()
+        autopatch_combo.addItem("Full Mix (all clients hear everyone)", 1)
+        autopatch_combo.addItem("Client-based (client controls patching)", 0)
+        autopatch_combo.addItem("No Auto-patch (manual patching only)", 2)
+        autopatch_combo.setCurrentIndex(0)  # Default to full mix
+        for i in range(autopatch_combo.count()):
+            if autopatch_combo.itemData(i) == self.hub_autopatch_mode:
+                autopatch_combo.setCurrentIndex(i)
+                break
+        layout.addRow("Autopatch Mode:", autopatch_combo)
+        
+        # Include server checkbox
+        include_server_check = QCheckBox("Include hub server in audio mix")
+        include_server_check.setChecked(self.hub_include_server)
+        layout.addRow(include_server_check)
+        
+        # Buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        if dialog.exec() == QDialog.Accepted:
+            self.hub_autopatch_mode = autopatch_combo.currentData()
+            self.hub_include_server = include_server_check.isChecked()
+            logger.info(f"Hub config updated: autopatch={self.hub_autopatch_mode}, include_server={self.hub_include_server}")
     
     def _on_add_link(self):
         """Add a new link node to center of view."""

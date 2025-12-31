@@ -92,6 +92,10 @@ class FabricOrchestrator:
             # Track which links should be active
             desired_links = set()
             
+            # Track hub clients separately (link_id + "_client_" + client_node_id)
+            desired_hub_clients = set()
+            local_node_id = str(self.config.node.node_id)
+            
             for link in links:
                 link_id = str(link.link_id)
                 
@@ -101,12 +105,32 @@ class FabricOrchestrator:
                 else:
                     params = link.params_json or {}
                 
-                # Skip if marked as unconnected (not ready yet)
-                if params.get('_unconnected'):
-                    continue
-                
                 # Only handle AUDIO_JACKTRIP links
                 if link.link_type != LinkType.AUDIO_JACKTRIP:
+                    continue
+                
+                mode = params.get('mode', 'P2P')
+                
+                # Handle HUB mode separately
+                if mode == 'HUB':
+                    # Hub mode: spawn client connections for each client in the clients dict
+                    clients = params.get('clients', {})
+                    for client_node_id, client_config in clients.items():
+                        # Check if THIS node is this client
+                        if client_node_id == local_node_id:
+                            client_key = f"{link_id}_client_{client_node_id}"
+                            desired_hub_clients.add(client_key)
+                            
+                            # Spawn client if not already active
+                            if client_key not in self.active_links:
+                                success = await self._spawn_hub_client(link, params, client_node_id, client_config, session)
+                                if success:
+                                    self.active_links.add(client_key)
+                    continue
+                
+                # P2P mode (original logic)
+                # Skip if marked as unconnected (not ready yet)
+                if params.get('_unconnected'):
                     continue
                 
                 # Check if link should be active (DESIRED_UP)
@@ -132,6 +156,12 @@ class FabricOrchestrator:
                         await self._terminate_link(link_id)
                         self.active_links.remove(link_id)
             
+            # Clean up hub clients no longer in clients list
+            active_hub_clients = {k for k in self.active_links if '_client_' in k}
+            for client_key in active_hub_clients - desired_hub_clients:
+                await self._terminate_link(client_key)
+                self.active_links.discard(client_key)
+            
             # Clean up any links that are no longer in database
             removed_links = self.active_links - desired_links - set(str(l.link_id) for l in links)
             for link_id in removed_links:
@@ -140,31 +170,22 @@ class FabricOrchestrator:
     
     async def _should_spawn_for_link(self, link: FabricLink, params: dict, session) -> bool:
         """
-        Determine if THIS node should spawn the JackTrip process for this link.
+        Determine if THIS node should spawn processes for this link.
         
-        P2P mode: The source node (node_a_id / source_node_id) spawns the client
-        Hub mode: Client nodes spawn clients, hub node spawns server
+        Hub mode: Always returns False - hub/client spawning handled separately in _orchestrate_links
+        P2P mode: The source node spawns the client
         """
         local_node_id = str(self.config.node.node_id)
         mode = params.get('mode', 'P2P')
         
-        if mode == 'P2P':
+        if mode == 'HUB':
+            # Hub mode handled separately - see _manage_hub_server and client spawning
+            return False
+        
+        elif mode == 'P2P':
             # In P2P, the source node spawns the client that connects to target
             source_node_id = params.get('source_node_id') or str(link.node_a_id)
             return source_node_id == local_node_id
-        
-        elif mode == 'HUB':
-            # In Hub mode, determine if we're the hub or a client
-            hub_node_id = params.get('hub_node_id')
-            
-            if not hub_node_id:
-                logger.error("hub_link_missing_hub_node_id", link_id=str(link.link_id))
-                return False
-            
-            # For now, we're implementing client mode only
-            # Hub server spawning would be more complex (one server, many clients)
-            # Client nodes connect TO the hub
-            return local_node_id != hub_node_id
         
         return False
     
@@ -239,29 +260,73 @@ class FabricOrchestrator:
             buffer_size=buffer_size
         )
     
+    async def _spawn_hub_client(self, link: FabricLink, params: dict, client_node_id: str, client_config: dict, session) -> bool:
+        """Spawn a JackTrip hub client connection."""
+        link_id = str(link.link_id)
+        client_key = f"{link_id}_client_{client_node_id}"
+        
+        # Get hub node info
+        hub_node_id = params.get('hub_node_id')
+        hub_node = session.query(Node).filter_by(node_id=hub_node_id).first()
+        
+        if not hub_node or not hub_node.ip_last_seen:
+            logger.error("hub_node_not_found_or_no_ip", link_id=link_id, hub_node_id=hub_node_id)
+            return False
+        
+        remote_host = hub_node.ip_last_seen
+        remote_port = 4464  # JackTrip hub server port
+        
+        # Get client channel config
+        send_channels = client_config.get('send_channels', 2)
+        receive_channels = client_config.get('receive_channels', 2)
+        # Use send_channels for now (client sending TO hub)
+        channels = send_channels
+        
+        sample_rate = params.get('sample_rate', 48000)
+        buffer_size = params.get('buffer_size', 128)
+        
+        logger.info(
+            "spawning_hub_client",
+            client_key=client_key,
+            remote_host=remote_host,
+            remote_port=remote_port,
+            channels=channels
+        )
+        
+        # Spawn JackTrip hub client
+        return await self.jacktrip_manager.create_audio_link(
+            link_id=client_key,
+            remote_host=remote_host,
+            remote_port=remote_port,
+            channels=channels,
+            mode="hub",
+            sample_rate=sample_rate,
+            buffer_size=buffer_size
+        )
+    
     async def _terminate_link(self, link_id: str) -> bool:
-        \"\"\"Terminate JackTrip process for a link.\"\"\"
+        """Terminate JackTrip process for a link."""
         logger.info("terminating_jacktrip_for_link", link_id=link_id)
         return await self.jacktrip_manager.remove_audio_link(link_id)
     
     async def _manage_hub_server(self, should_be_running: bool):
-        \"\"\"Start or stop the JackTrip hub server as needed.\"\"\"
+        """Start or stop the JackTrip hub server as needed."""
         import shutil
         
         if should_be_running and self.hub_server_process is None:
             # Start hub server
-            jacktrip_bin = shutil.which(\"jacktrip\")
+            jacktrip_bin = shutil.which("jacktrip")
             if not jacktrip_bin:
-                logger.error(\"jacktrip_not_found_for_hub_server\")
+                logger.error("jacktrip_not_found_for_hub_server")
                 return
             
-            logger.info(\"starting_jacktrip_hub_server\", port=4464)
+            logger.info("starting_jacktrip_hub_server", port=4464)
             
             try:
                 self.hub_server_process = await asyncio.create_subprocess_exec(
                     jacktrip_bin,
-                    \"-s\",  # Server mode
-                    \"-p\", \"4464\",  # Port
+                    "-s",  # Server mode
+                    "-p", "4464",  # Port
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE
                 )
@@ -272,46 +337,26 @@ class FabricOrchestrator:
                 if self.hub_server_process.returncode is not None:
                     stdout, stderr = await self.hub_server_process.communicate()
                     logger.error(
-                        \"hub_server_failed_to_start\",
+                        "hub_server_failed_to_start",
                         exit_code=self.hub_server_process.returncode,
                         stderr=stderr.decode()[:500]
                     )
                     self.hub_server_process = None
                 else:
-                    logger.info(\"hub_server_started\", pid=self.hub_server_process.pid)
+                    logger.info("hub_server_started", pid=self.hub_server_process.pid)
             except Exception as e:
-                logger.error(\"failed_to_start_hub_server\", error=str(e), exc_info=True)
+                logger.error("failed_to_start_hub_server", error=str(e), exc_info=True)
                 
         elif not should_be_running and self.hub_server_process is not None:
             # Stop hub server
-            logger.info(\"stopping_jacktrip_hub_server\")
+            logger.info("stopping_jacktrip_hub_server")
             try:
                 self.hub_server_process.terminate()
                 await asyncio.wait_for(self.hub_server_process.wait(), timeout=5.0)
-                logger.info(\"hub_server_stopped\")
+                logger.info("hub_server_stopped")
             except asyncio.TimeoutError:
-                logger.warning(\"hub_server_shutdown_timeout_killing\")
+                logger.warning("hub_server_shutdown_timeout_killing")
                 self.hub_server_process.kill()
                 await self.hub_server_process.wait()
             finally:
                 self.hub_server_process = None
-            channels=channels
-        )
-        
-        # Spawn JackTrip client
-        success = await self.jacktrip_manager.create_audio_link(
-            link_id=link_id,
-            remote_host=remote_host,
-            remote_port=remote_port,
-            channels=channels,
-            mode=mode.lower(),
-            sample_rate=sample_rate,
-            buffer_size=buffer_size
-        )
-        
-        return success
-    
-    async def _terminate_link(self, link_id: str):
-        """Terminate JackTrip process for a link."""
-        logger.info("terminating_jacktrip_for_link", link_id=link_id)
-        await self.jacktrip_manager.remove_audio_link(link_id)
