@@ -396,6 +396,10 @@ class FabricCanvas(QGraphicsView):
         self.link_nodes: Dict[str, LinkNodeItem] = {}
         self.wires: List[ConnectionWire] = []
         
+        # Store direct hub-client connections (not in database, just for visualization)
+        # Format: {(client_node_id, hub_node_id): {send_channels, receive_channels}}
+        self.hub_client_connections: Dict[tuple, Dict] = {}
+        
         # Auto-refresh
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh)
@@ -501,27 +505,39 @@ class FabricCanvas(QGraphicsView):
         self.wires.append(wire)
         logger.info(f"Created wire between nodes")
         
-        # If one of the items is a LinkNodeItem, update its connection in the database
-        self._update_link_connections(from_item, to_item)
-        
-        # If one of the items is a LinkNodeItem, update its connection in the database
+        # Update connection in the database
         self._update_link_connections(from_item, to_item)
     
     def _update_link_connections(self, from_item, to_item):
         """Update link node connections in database when wires are created."""
         link_node = None
         fabric_node = None
+        hub_node = None
+        client_node = None
         
-        # Determine which item is the link node and which is the fabric node
+        # Check if this is a link-fabric connection (old style with diamond nodes)
         if isinstance(from_item, LinkNodeItem) and isinstance(to_item, FabricNodeItem):
             link_node = from_item
             fabric_node = to_item
         elif isinstance(from_item, FabricNodeItem) and isinstance(to_item, LinkNodeItem):
             link_node = to_item
             fabric_node = from_item
+        # Check if this is a direct fabric-to-fabric connection (client to hub)
+        elif isinstance(from_item, FabricNodeItem) and isinstance(to_item, FabricNodeItem):
+            # Determine which is hub and which is client
+            parent = self.parentWidget()
+            if parent and hasattr(parent, 'hub_node_combo'):
+                selected_hub_id = parent.hub_node_combo.currentData()
+                if str(from_item.node.node_id) == selected_hub_id:
+                    hub_node = from_item
+                    client_node = to_item
+                elif str(to_item.node.node_id) == selected_hub_id:
+                    hub_node = to_item
+                    client_node = from_item
         
-        if not link_node or not fabric_node:
-            return  # Not a link-fabric connection
+        # If neither link node nor hub/client pair found, return
+        if not link_node and not hub_node:
+            return
         
         # For HUB mode, show client configuration dialog
         from PySide6.QtWidgets import QDialog, QFormLayout, QSpinBox, QDialogButtonBox, QLabel
@@ -530,8 +546,15 @@ class FabricCanvas(QGraphicsView):
         dialog.setWindowTitle(f"Configure Client Connection")
         layout = QFormLayout(dialog)
         
-        layout.addRow(QLabel(f"<b>Client:</b> {fabric_node.node.hostname}"))
-        layout.addRow(QLabel(f"<b>Hub:</b> {link_node.link_data.link_id[:8]}"))
+        if link_node and fabric_node:
+            # Old style with link nodes
+            layout.addRow(QLabel(f"<b>Client:</b> {fabric_node.node.hostname}"))
+            layout.addRow(QLabel(f"<b>Hub:</b> {link_node.link_data.link_id[:8]}"))
+        elif hub_node and client_node:
+            # Direct hub-to-client connection
+            layout.addRow(QLabel(f"<b>Client:</b> {client_node.node.hostname}"))
+            layout.addRow(QLabel(f"<b>Hub:</b> {hub_node.node.hostname}"))
+        
         layout.addRow(QLabel("<i>Configure how many channels this client will send/receive</i>"))
         
         # Send Channels
@@ -561,44 +584,59 @@ class FabricCanvas(QGraphicsView):
         send_channels = send_channels_spin.value()
         receive_channels = receive_channels_spin.value()
         
-        # Update the link in the database
+        # Update the connection in the database
         try:
             with self.database.get_session() as session:
-                from verdandi_codex.models.fabric import FabricLink
+                from verdandi_codex.models.fabric import FabricLink, FabricGraph, LinkType
                 import json
                 
-                link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
-                if not link:
-                    logger.error(f"Link {link_node.link_data.link_id} not found in database")
-                    return
-                
-                # Load params
-                params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
-                
-                # Add client to clients dict
-                client_node_id = str(fabric_node.node.node_id)
-                if 'clients' not in params:
-                    params['clients'] = {}
-                
-                params['clients'][client_node_id] = {
-                    "send_channels": send_channels,
-                    "receive_channels": receive_channels,
-                    "hostname": fabric_node.node.hostname
-                }
-                
-                # Hub server is already DESIRED_UP, this just adds a client
-                link.params_json = json.dumps(params)
-                session.commit()
-                logger.info(f"Added client {fabric_node.node.hostname} to hub {link_node.link_data.link_id[:8]}: {send_channels}→{receive_channels}ch")
-                
-                link.params_json = json.dumps(params)
-                session.commit()
+                if link_node and fabric_node:
+                    # Old style with link nodes
+                    link = session.query(FabricLink).filter_by(link_id=link_node.link_data.link_id).first()
+                    if not link:
+                        logger.error(f"Link {link_node.link_data.link_id} not found in database")
+                        return
+                    
+                    # Load params
+                    params = json.loads(link.params_json) if isinstance(link.params_json, str) else (link.params_json or {})
+                    
+                    # Add client to clients dict
+                    client_node_id = str(fabric_node.node.node_id)
+                    if 'clients' not in params:
+                        params['clients'] = {}
+                    
+                    params['clients'][client_node_id] = {
+                        "send_channels": send_channels,
+                        "receive_channels": receive_channels,
+                        "hostname": fabric_node.node.hostname
+                    }
+                    
+                    link.params_json = json.dumps(params)
+                    session.commit()
+                    logger.info(f"Added client {fabric_node.node.hostname} to hub {link_node.link_data.link_id[:8]}: {send_channels}→{receive_channels}ch")
+                    
+                elif hub_node and client_node:
+                    # Direct hub-to-client connection - store in memory
+                    hub_node_id = str(hub_node.node.node_id)
+                    client_node_id = str(client_node.node.node_id)
+                    
+                    connection_key = (client_node_id, hub_node_id)
+                    self.hub_client_connections[connection_key] = {
+                        "send_channels": send_channels,
+                        "receive_channels": receive_channels,
+                        "client_hostname": client_node.node.hostname,
+                        "hub_hostname": hub_node.node.hostname
+                    }
+                    
+                    logger.info(f"Stored direct hub connection: {client_node.node.hostname} ({send_channels}→{receive_channels}ch) -> hub {hub_node.node.hostname}")
+                    
+                    # TODO: Call gRPC to actually start the JackTrip client connection
         except Exception as e:
             logger.error(f"Failed to update link connections: {e}", exc_info=True)
     
     def delete_wire(self, wire: ConnectionWire):
         """Delete a wire and update link status in database."""
-        # Determine if this involves a link node
+        # Determine if this involves a link node or direct hub-client connection
         link_node = None
         fabric_node = None
         
@@ -608,6 +646,21 @@ class FabricCanvas(QGraphicsView):
         elif isinstance(wire.from_item, FabricNodeItem) and isinstance(wire.to_item, LinkNodeItem):
             link_node = wire.to_item
             fabric_node = wire.from_item
+        elif isinstance(wire.from_item, FabricNodeItem) and isinstance(wire.to_item, FabricNodeItem):
+            # Direct hub-client connection
+            client_node = wire.from_item
+            hub_node = wire.to_item
+            
+            # Check both directions
+            key1 = (str(client_node.node.node_id), str(hub_node.node.node_id))
+            key2 = (str(hub_node.node.node_id), str(client_node.node.node_id))
+            
+            if key1 in self.hub_client_connections:
+                del self.hub_client_connections[key1]
+                logger.info(f"Removed direct hub connection: {client_node.node.hostname} -> {hub_node.node.hostname}")
+            elif key2 in self.hub_client_connections:
+                del self.hub_client_connections[key2]
+                logger.info(f"Removed direct hub connection: {hub_node.node.hostname} -> {client_node.node.hostname}")
         
         # Remove wire from scene
         self.scene.removeItem(wire)
@@ -813,6 +866,22 @@ class FabricCanvas(QGraphicsView):
                         )
                         self.scene.addItem(wire2)
                         self.wires.append(wire2)
+            
+            # Create wires for direct hub-client connections (stored in memory)
+            for (client_id, hub_id), conn_info in self.hub_client_connections.items():
+                if client_id in self.fabric_nodes and hub_id in self.fabric_nodes:
+                    client_node = self.fabric_nodes[client_id]
+                    hub_node = self.fabric_nodes[hub_id]
+                    
+                    # Wire from client to hub
+                    wire = ConnectionWire(
+                        client_node, hub_node,
+                        from_port=client_node.output_port,
+                        to_port=hub_node.input_port,
+                        parent_canvas=self
+                    )
+                    self.scene.addItem(wire)
+                    self.wires.append(wire)
             
         except Exception as e:
             logger.error(f"Error refreshing fabric canvas: {e}", exc_info=True)

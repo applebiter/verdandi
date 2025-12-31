@@ -221,7 +221,7 @@ class VerdandiHall(QMainWindow):
         
         # Create list widget
         self.node_list = QListWidget()
-        self.node_list.itemDoubleClicked.connect(self._on_node_clicked)
+        self.node_list.itemClicked.connect(self._on_node_clicked)  # Single click, not double
         dock.setWidget(self.node_list)
         
         # Add dock to left side
@@ -311,15 +311,32 @@ class VerdandiHall(QMainWindow):
                 self.remote_jack_canvas.deleteLater()
                 self.remote_jack_canvas = None
             
-            # Create new canvas for this node
-            # For now, create a local canvas that will be populated with remote data
-            # TODO: Implement RemoteJackCanvas that queries via gRPC and saves per-node state
-            self.remote_jack_canvas = JackCanvas(jack_manager=None, parent=self, node_id=node_id)
+            # Create placeholder for remote JACK graph
+            # TODO: Implement RemoteJackCanvas that queries via gRPC
+            from PySide6.QtWidgets import QLabel
+            from PySide6.QtCore import Qt
+            
+            placeholder = QLabel(
+                f"<h3>Remote JACK Graph: {node.hostname}</h3>\n\n"
+                f"<p><i>Remote JACK graph visualization requires gRPC implementation.</i></p>\n"
+                f"<p>This will query JACK ports and connections from <b>{node.hostname}</b> "
+                f"via gRPC at <code>{node.ip_last_seen}:{node.daemon_port}</code></p>\n\n"
+                f"<p>Features to implement:</p>"
+                f"<ul>"
+                f"<li>Query remote node's JACK ports</li>"
+                f"<li>Display connections</li>"
+                f"<li>Allow remote port connections</li>"
+                f"<li>Save per-node layout positions</li>"
+                f"</ul>"
+            )
+            placeholder.setTextFormat(Qt.RichText)
+            placeholder.setAlignment(Qt.AlignCenter)
+            placeholder.setStyleSheet("QLabel { padding: 40px; color: #888; }")
+            placeholder.setWordWrap(True)
+            
+            self.remote_jack_canvas = placeholder
             self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
             self.current_remote_node_id = node_id
-            
-            # Load saved state for this node
-            self._load_remote_canvas_state(node_id)
             
             self.status_bar.showMessage(f"Loaded remote JACK graph for {node.hostname}", 3000)
             
