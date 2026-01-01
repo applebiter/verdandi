@@ -472,18 +472,31 @@ class ConnectionGraphicsItem(QGraphicsItem):
     def mousePressEvent(self, event):
         """Right-click to delete connection."""
         if event.button() == Qt.RightButton:
-            # Get parent widget to access jack_manager
+            # Get parent widget to access jack_manager or remote_node
             if self.scene() and self.scene().views():
                 view = self.scene().views()[0]
                 parent = view.parent()
-                while parent and not hasattr(parent, 'jack_manager'):
+                while parent and not hasattr(parent, 'jack_manager') and not hasattr(parent, 'remote_node'):
                     parent = parent.parent()
                 
-                if parent and parent.jack_manager:
+                if parent:
                     try:
-                        parent.jack_manager.disconnect_ports(self.conn.output_port, self.conn.input_port)
-                        # Refresh to show removed connection
-                        parent.refresh_from_jack()
+                        if parent.jack_manager:
+                            # Local disconnection
+                            parent.jack_manager.disconnect_ports(self.conn.output_port, self.conn.input_port)
+                            parent.refresh_from_jack()
+                        elif parent.remote_node:
+                            # Remote disconnection via gRPC
+                            from verdandi_hall.grpc_client import VerdandiGrpcClient
+                            with VerdandiGrpcClient(parent.remote_node, timeout=10) as client:
+                                response = client.disconnect_jack_ports(self.conn.output_port, self.conn.input_port)
+                                if response.success:
+                                    logger.info(f"Remote disconnection: {response.message}")
+                                    # Trigger remote refresh
+                                    if hasattr(parent, 'remote_refresh_requested'):
+                                        parent.remote_refresh_requested.emit()
+                                else:
+                                    logger.error(f"Failed to disconnect remotely: {response.message}")
                     except Exception as e:
                         logger.error(f"Failed to disconnect: {e}", exc_info=True)
             event.accept()
@@ -617,16 +630,29 @@ class GraphCanvas(QGraphicsView):
     
     def _create_jack_connection(self, output_port: str, input_port: str):
         """Create a JACK connection between two ports."""
-        # Get parent widget to access jack_manager
+        # Get parent widget to access jack_manager or remote_node
         parent = self.parent()
-        while parent and not hasattr(parent, 'jack_manager'):
+        while parent and not hasattr(parent, 'jack_manager') and not hasattr(parent, 'remote_node'):
             parent = parent.parent()
         
-        if parent and parent.jack_manager:
+        if parent:
             try:
-                parent.jack_manager.connect_ports(output_port, input_port)
-                # Refresh to show new connection
-                parent.refresh_from_jack()
+                if parent.jack_manager:
+                    # Local connection
+                    parent.jack_manager.connect_ports(output_port, input_port)
+                    parent.refresh_from_jack()
+                elif parent.remote_node:
+                    # Remote connection via gRPC
+                    from verdandi_hall.grpc_client import VerdandiGrpcClient
+                    with VerdandiGrpcClient(parent.remote_node, timeout=10) as client:
+                        response = client.connect_jack_ports(output_port, input_port)
+                        if response.success:
+                            logger.info(f"Remote connection created: {response.message}")
+                            # Trigger remote refresh
+                            if hasattr(parent, 'remote_refresh_requested'):
+                                parent.remote_refresh_requested.emit()
+                        else:
+                            logger.error(f"Failed to create remote connection: {response.message}")
             except Exception as e:
                 logger.error(f"Failed to create connection: {e}", exc_info=True)
     
@@ -665,10 +691,14 @@ class GraphCanvas(QGraphicsView):
 class NodeCanvasWidget(QWidget):
     """Controller - bridges JACK manager and GraphModel."""
     
-    def __init__(self, jack_manager: Optional[JackClientManager] = None, parent=None, node_id: str = None):
+    # Signal for remote canvases to request refresh
+    remote_refresh_requested = Signal()
+    
+    def __init__(self, jack_manager: Optional[JackClientManager] = None, parent=None, node_id: str = None, remote_node=None):
         super().__init__(parent)
         self.jack_manager = jack_manager
         self.node_id = node_id or "local"  # Default to "local" for local canvas
+        self.remote_node = remote_node  # Node object for remote gRPC operations
         
         # Determine presets directory based on node_id
         if node_id:
@@ -744,6 +774,9 @@ class NodeCanvasWidget(QWidget):
     def refresh_from_jack(self):
         """Update model from JACK state."""
         if not self.jack_manager:
+            # For remote canvases, emit signal to trigger remote refresh
+            if hasattr(self, 'remote_refresh_requested'):
+                self.remote_refresh_requested.emit()
             return
         try:
             # Get JACK data - include both audio and MIDI ports
@@ -1071,8 +1104,13 @@ class JackCanvasWithControls(QWidget):
         controls = self._create_control_panel()
         layout.addWidget(controls)
         
-        # Canvas - pass node_id so remote nodes get separate preset storage
-        self.canvas = NodeCanvasWidget(jack_manager=jack_manager, parent=self, node_id=node_id)
+        # Canvas - pass node_id and remote_node for remote connections
+        self.canvas = NodeCanvasWidget(
+            jack_manager=jack_manager, 
+            parent=self, 
+            node_id=node_id,
+            remote_node=remote_node
+        )
         layout.addWidget(self.canvas)
         
     def _create_control_panel(self):
@@ -1231,7 +1269,9 @@ class JackCanvasWithControls(QWidget):
     
     def _on_connect_client(self):
         """Connect as client to a hub."""
-        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QSpinBox, QDialogButtonBox
+        from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QSpinBox, QDialogButtonBox
+        from verdandi_codex.database import Database
+        from verdandi_codex.models.identity import Node
         
         # Configuration dialog
         dialog = QDialog(self)
@@ -1241,9 +1281,26 @@ class JackCanvasWithControls(QWidget):
         layout.addRow(QLabel("<b>Client Configuration</b>"))
         layout.addRow(QLabel("Connect to a running JackTrip hub server."))
         
-        host_edit = QLineEdit()
-        host_edit.setPlaceholderText("192.168.1.100 or hostname")
-        layout.addRow("Hub Host:", host_edit)
+        # Get list of nodes from database
+        host_combo = QComboBox()
+        try:
+            db = Database()
+            session = db.get_session()
+            nodes = session.query(Node).order_by(Node.hostname).all()
+            session.close()
+            
+            # Populate combo box with nodes
+            for node in nodes:
+                display_text = f"{node.hostname} ({node.ip_last_seen})"
+                host_combo.addItem(display_text, node.ip_last_seen)  # Store IP as user data
+            
+            if host_combo.count() == 0:
+                host_combo.addItem("No nodes registered", None)
+        except Exception as e:
+            logger.error(f"Failed to load nodes: {e}")
+            host_combo.addItem("Error loading nodes", None)
+        
+        layout.addRow("Hub Host:", host_combo)
         
         port_spin = QSpinBox()
         port_spin.setRange(1024, 65535)
@@ -1268,7 +1325,7 @@ class JackCanvasWithControls(QWidget):
         if dialog.exec() != QDialog.Accepted:
             return
         
-        host = host_edit.text().strip()
+        host = host_combo.currentData()  # Get IP from selected node
         if not host:
             QMessageBox.warning(self, "Invalid Input", "Please enter a hub host address.")
             return
@@ -1293,14 +1350,29 @@ class JackCanvasWithControls(QWidget):
             else:
                 # Start client locally via subprocess
                 import subprocess
-                # Use hub hostname as client name so we see "green" in our local JACK graph
-                client_name = host.split('.')[0]  # Remove domain if present
+                import socket
+                
+                # Try to resolve hostname from IP, fallback to hostname portion
+                try:
+                    # If host is IP, try reverse DNS lookup
+                    if host.replace('.', '').replace(':', '').isdigit() or ':' in host:
+                        client_name = socket.gethostbyaddr(host)[0].split('.')[0]
+                    else:
+                        client_name = host.split('.')[0]
+                except:
+                    # Fallback: just use first part
+                    client_name = host.split('.')[0] if '.' in host else host
+                
+                # Get local hostname to tell the hub who we are
+                local_hostname = socket.gethostname().split('.')[0]
+                
                 cmd = [
                     "jacktrip", "-C", host,
                     "--bindport", str(port),
                     "--sendchannels", str(send_channels),
                     "--receivechannels", str(receive_channels),
-                    "--clientname", client_name
+                    "--clientname", client_name,
+                    "--remotename", local_hostname  # Tell hub to name us by our hostname
                 ]
                 try:
                     # Start process and capture output for error checking

@@ -135,7 +135,8 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 "-o", str(receive_channels),
                 "-q", str(buffer_size),
                 "--bufstrategy", "3",
-                "--clientname", hostname
+                "--clientname", hostname,
+                "--remotename", hostname  # Tell hub to name us by our hostname
             ]
             
             logger.info(f"Starting JackTrip client: {' '.join(cmd)}")

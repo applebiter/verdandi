@@ -289,7 +289,7 @@ class VerdandiHall(QMainWindow):
         # Load the remote node's JACK graph
         self._load_remote_jack_graph(node_id)
     
-    def _load_remote_jack_graph(self, node_id: str):
+    def _load_remote_jack_graph(self, node_id: str, force_refresh: bool = False):
         """Load and display a remote node's JACK graph in the Remote JACK tab."""
         # Always reload to capture any changes (like new JackTrip instances)
         
@@ -305,8 +305,8 @@ class VerdandiHall(QMainWindow):
             # Update header
             self.remote_node_label.setText(f"<b>Remote JACK Graph:</b> {node.hostname} ({node.ip_last_seen})")
             
-            # Clear existing canvas if any
-            if self.remote_jack_canvas:
+            # Clear existing canvas if any (or if force refresh)
+            if self.remote_jack_canvas and (force_refresh or self.current_remote_node_id != node_id):
                 self.remote_canvas_container.layout().removeWidget(self.remote_jack_canvas)
                 self.remote_jack_canvas.deleteLater()
                 self.remote_jack_canvas = None
@@ -321,26 +321,32 @@ class VerdandiHall(QMainWindow):
                 with VerdandiGrpcClient(node) as client:
                     jack_graph = client.get_jack_graph()
                 
-                # Create canvas with remote data and controls
-                self.remote_jack_canvas = JackCanvasWithControls(
-                    jack_manager=None, 
-                    parent=self, 
-                    node_id=node_id,
-                    is_remote=True,
-                    remote_node=node
-                )
+                # Create canvas with remote data and controls if not exists
+                if not self.remote_jack_canvas:
+                    self.remote_jack_canvas = JackCanvasWithControls(
+                        jack_manager=None, 
+                        parent=self, 
+                        node_id=node_id,
+                        is_remote=True,
+                        remote_node=node
+                    )
+                    
+                    # Connect refresh signal to reload remote graph
+                    self.remote_jack_canvas.canvas.remote_refresh_requested.connect(
+                        lambda: self._load_remote_jack_graph(node_id, force_refresh=True)
+                    )
+                    
+                    self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
+                    self.current_remote_node_id = node_id
                 
-                # Populate canvas with remote data from jack_graph
+                # Always populate canvas with latest remote data from jack_graph
                 self._populate_remote_jack_canvas(jack_graph)
                 
-                # Detect JackTrip state from JACK graph
+                # Always detect JackTrip state from JACK graph (handles restarts)
                 self._detect_jacktrip_state(jack_graph)
                 
-                # Load last preset for this node (after nodes are populated)
+                # Always load the last saved preset to restore positions
                 self.remote_jack_canvas.canvas._load_last_preset()
-                
-                self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
-                self.current_remote_node_id = node_id
                 
                 self.status_bar.showMessage(f"Connected to {node.hostname} - {len(jack_graph.clients)} JACK clients found", 5000)
                 
@@ -501,13 +507,29 @@ class VerdandiHall(QMainWindow):
     def _detect_jacktrip_state(self, jack_graph):
         """Detect if JackTrip is running by checking JACK clients."""
         if not hasattr(self, 'remote_jack_canvas') or self.remote_jack_canvas is None:
+            logger.warning("_detect_jacktrip_state called but remote_jack_canvas is None")
             return
         
-        # Look for jacktrip in client names
+        # Get list of known node hostnames from database
+        known_hostnames = set()
+        try:
+            session = self.db.get_session()
+            nodes = session.query(Node).all()
+            known_hostnames = {node.hostname.lower() for node in nodes}
+            session.close()
+        except Exception as e:
+            logger.error(f"Failed to get node list: {e}")
+        
+        # Look for jacktrip or node hostnames in client names
         has_jacktrip = False
+        logger.info(f"Scanning {len(jack_graph.clients)} JACK clients for jacktrip...")
         for client in jack_graph.clients:
-            if 'jacktrip' in client.name.lower():
+            client_lower = client.name.lower()
+            logger.debug(f"  Client: {client.name}")
+            # Check for "jacktrip" or any known node hostname
+            if 'jacktrip' in client_lower or client_lower in known_hostnames:
                 has_jacktrip = True
+                logger.info(f"Found JackTrip client: {client.name}")
                 break
         
         if has_jacktrip:
@@ -517,13 +539,14 @@ class VerdandiHall(QMainWindow):
             self.remote_jack_canvas.start_hub_btn.setEnabled(False)
             self.remote_jack_canvas.stop_hub_btn.setEnabled(True)
             self.remote_jack_canvas.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
-            logger.info("Detected running JackTrip hub on remote node")
+            logger.info("Set UI to show Hub Running")
         else:
             # No jacktrip found
             self.remote_jack_canvas.hub_running = False
             self.remote_jack_canvas.start_hub_btn.setEnabled(True)
             self.remote_jack_canvas.stop_hub_btn.setEnabled(False)
             self.remote_jack_canvas.status_label.setText("Status: <i>Idle</i>")
+            logger.info("No JackTrip found, set UI to Idle")
     
     def _load_remote_canvas_state(self, node_id: str):
         """Load saved canvas state (positions, connections) for a remote node."""
