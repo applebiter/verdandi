@@ -1,0 +1,23 @@
+[Unit]
+Description=Verdandi Daemon - Distributed AI Platform Node Daemon
+After=network.target jack.service postgresql.service
+Wants=jack.service
+
+[Service]
+Type=simple
+User=sysadmin
+Group=sysadmin
+WorkingDirectory=/home/sysadmin/Programs/verdandi
+Environment="PATH=/home/sysadmin/Programs/verdandi/.venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/sysadmin/Programs/verdandi/.venv/bin/python -m verdandi_engine.daemon
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
