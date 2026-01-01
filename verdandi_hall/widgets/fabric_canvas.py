@@ -975,6 +975,24 @@ class FabricCanvas(QGraphicsView):
                     item = FabricNodeItem(node_graphics, parent_canvas=self, is_hub=is_hub)
                     self.scene.addItem(item)
                     self.fabric_nodes[node_id] = item
+                else:
+                    # Update existing node's hub status
+                    item = self.fabric_nodes[node_id]
+                    is_hub = (self.hub_node_id and str(node.node_id) == self.hub_node_id)
+                    if item.is_hub != is_hub:
+                        # Recreate the socket with new position
+                        self.scene.removeItem(item.socket)
+                        item.is_hub = is_hub
+                        item.socket = ConnectionPort(item, is_output=True, is_hub=is_hub)
+                        
+                        # Update color
+                        if is_hub:
+                            color = QColor(180, 100, 100, 200)  # Red-tinted for hub
+                        elif item.node.is_local:
+                            color = QColor(100, 180, 100, 200)
+                        else:
+                            color = QColor(80, 120, 180, 200)
+                        item.setBrush(QBrush(color))
             
             # Update link nodes
             current_link_ids = set(str(link.link_id) for link in links)
