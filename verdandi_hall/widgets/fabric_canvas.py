@@ -974,15 +974,17 @@ class FabricCanvas(QGraphicsView):
                         is_local=(str(node.node_id) == str(self.config.node.node_id))
                     )
                     
-                    # Check if this node is the hub
-                    is_hub = (self.hub_node_id and str(node.node_id) == self.hub_node_id)
+                    # Check if this node is the hub (check parent widget)
+                    parent_hub_id = getattr(self.parent(), 'hub_node_id', None) if self.parent() else None
+                    is_hub = (parent_hub_id and str(node.node_id) == parent_hub_id)
                     item = FabricNodeItem(node_graphics, parent_canvas=self, is_hub=is_hub)
                     self.scene.addItem(item)
                     self.fabric_nodes[node_id] = item
                 else:
                     # Update existing node's hub status
                     item = self.fabric_nodes[node_id]
-                    is_hub = (self.hub_node_id and str(node.node_id) == self.hub_node_id)
+                    parent_hub_id = getattr(self.parent(), 'hub_node_id', None) if self.parent() else None
+                    is_hub = (parent_hub_id and str(node.node_id) == parent_hub_id)
                     if item.is_hub != is_hub:
                         # Recreate the socket with new position
                         self.scene.removeItem(item.socket)
@@ -1582,6 +1584,9 @@ class FabricCanvasWidget(QWidget):
             self.start_hub_btn.setEnabled(False)
             self.stop_hub_btn.setEnabled(True)
             self.hub_node_combo.setEnabled(False)
+            
+            # Refresh canvas to update socket positions
+            self.canvas.refresh()
             
             # Start inactivity timer
             self.hub_inactivity_timer.start(self.hub_inactivity_timeout)

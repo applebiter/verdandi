@@ -18,6 +18,7 @@ from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
 from verdandi_codex.models.identity import Node
 from verdandi_hall.widgets import JackCanvas, JackClientManager, FabricCanvasWidget
+from verdandi_hall.widgets.jack_canvas import PortModel
 
 logger = logging.getLogger(__name__)
 
@@ -324,8 +325,8 @@ class VerdandiHall(QMainWindow):
                 # Create canvas with remote data
                 self.remote_jack_canvas = JackCanvas(jack_manager=None, parent=self, node_id=node_id)
                 
-                # TODO: Populate canvas with remote data from jack_graph
-                # For now, just show it works
+                # Populate canvas with remote data from jack_graph
+                self._populate_remote_jack_canvas(jack_graph)
                 
                 self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
                 self.current_remote_node_id = node_id
@@ -356,6 +357,76 @@ class VerdandiHall(QMainWindow):
         except Exception as e:
             logger.error("load_remote_jack_failed", error=str(e), node_id=node_id)
             QMessageBox.critical(self, "Error", f"Failed to load remote JACK graph: {e}")
+    
+    def _populate_remote_jack_canvas(self, jack_graph):
+        """Populate the remote JACK canvas with data from a JackGraphResponse."""
+        if not hasattr(self, 'remote_jack_canvas') or self.remote_jack_canvas is None:
+            logger.warning("No remote canvas to populate")
+            return
+        
+        # Begin batch mode to prevent multiple refreshes
+        self.remote_jack_canvas.model.begin_batch()
+        
+        # Clear existing data
+        self.remote_jack_canvas.model.clear()
+        
+        # Add clients and ports
+        x, y = 50, 50  # Starting position for auto-layout
+        for client in jack_graph.clients:
+            # Add client node
+            node = self.remote_jack_canvas.model.add_node(client.name, x, y)
+            
+            # Add input ports (directly manipulate node.inputs list)
+            for port_name in client.input_ports:
+                # Extract short name (after colon)
+                short_name = port_name.split(":", 1)[-1] if ":" in port_name else port_name
+                is_midi = ":midi_" in port_name or "_midi_" in port_name
+                
+                node.inputs.append(
+                    PortModel(
+                        name=short_name,
+                        full_name=port_name,
+                        is_output=False,
+                        is_midi=is_midi
+                    )
+                )
+            
+            # Add output ports
+            for port_name in client.output_ports:
+                # Extract short name (after colon)
+                short_name = port_name.split(":", 1)[-1] if ":" in port_name else port_name
+                is_midi = ":midi_" in port_name or "_midi_" in port_name
+                
+                node.outputs.append(
+                    PortModel(
+                        name=short_name,
+                        full_name=port_name,
+                        is_output=True,
+                        is_midi=is_midi
+                    )
+                )
+            
+            # Update position for next node
+            x += 200
+            if x > 800:
+                x = 50
+                y += 150
+        
+        # Add connections
+        for conn in jack_graph.connections:
+            try:
+                self.remote_jack_canvas.model.add_connection(
+                    output_port=conn.output_port,
+                    input_port=conn.input_port
+                )
+            except Exception as e:
+                logger.warning(f"Failed to add connection {conn.output_port} -> {conn.input_port}: {e}")
+        
+        # End batch mode - this triggers a single rebuild
+        self.remote_jack_canvas.model.end_batch()
+        
+        logger.info(f"Populated remote canvas with {len(jack_graph.clients)} clients and {len(jack_graph.connections)} connections")
+
     
     def _load_remote_canvas_state(self, node_id: str):
         """Load saved canvas state (positions, connections) for a remote node."""
