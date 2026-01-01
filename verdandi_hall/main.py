@@ -139,6 +139,8 @@ class VerdandiHall(QMainWindow):
         )
         # Keep reference to inner canvas for compatibility
         self.jack_canvas = self.jack_canvas_widget.canvas
+        # Connect hub coordination signal
+        self.jack_canvas_widget.hub_started.connect(self._on_any_hub_started)
         return self.jack_canvas_widget
     
     def _create_remote_jack_tab(self):
@@ -179,6 +181,8 @@ class VerdandiHall(QMainWindow):
                 self.fabric_widget.buffer_size_label.setText(f"Buffer Size: {self.fabric_widget.buffer_size} frames")
             # Connect signals
             self.fabric_widget.canvas.node_double_clicked.connect(self._on_fabric_node_clicked)
+            # Connect hub state coordination
+            self.fabric_widget.hub_started.connect(self._on_any_hub_started)
             # Replace placeholder with actual widget
             index = self.tabs.indexOf(self.fabric_tab_placeholder)
             self.tabs.removeTab(index)
@@ -252,33 +256,55 @@ class VerdandiHall(QMainWindow):
             
             for node in nodes:
                 is_local = node.node_id == self.config.node.node_id
-                status_icon = "🟢" if node.status == "online" else "🔴"
-                local_marker = " (local)" if is_local else ""
                 
-                item_text = f"{status_icon} {node.hostname}{local_marker}"
+                # Skip local node - it should not be shown in the network nodes list
+                # to avoid confusion (clicking it would load local graph into remote graph)
+                if is_local:
+                    continue
+                
+                status_icon = "🟢" if node.status == "online" else "🔴"
+                
+                item_text = f"{status_icon} {node.hostname}"
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.UserRole, str(node.node_id))  # Store node_id as data
-                
-                # Color local node differently
-                if is_local:
-                    item.setForeground(Qt.darkGreen)
                 
                 self.node_list.addItem(item)
                 
         except Exception as e:
             logger.error("node_list_refresh_failed", error=str(e))
     
+    def _on_any_hub_started(self):
+        """Coordinate hub state across all control panels when any hub starts."""
+        # Disable Start Hub buttons on all control panels
+        if hasattr(self, 'jack_canvas_widget') and self.jack_canvas_widget:
+            self.jack_canvas_widget.start_hub_btn.setEnabled(False)
+        
+        if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
+            if hasattr(self.remote_jack_canvas, 'start_hub_btn'):
+                self.remote_jack_canvas.start_hub_btn.setEnabled(False)
+        
+        if hasattr(self, 'fabric_widget') and self.fabric_widget:
+            self.fabric_widget.start_hub_btn.setEnabled(False)
+    
+    def _is_any_hub_running(self):
+        """Check if any hub is currently running on any panel."""
+        if hasattr(self, 'jack_canvas_widget') and self.jack_canvas_widget:
+            if self.jack_canvas_widget.hub_running:
+                return True
+        
+        if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
+            if hasattr(self.remote_jack_canvas, 'hub_running') and self.remote_jack_canvas.hub_running:
+                return True
+        
+        if hasattr(self, 'fabric_widget') and self.fabric_widget:
+            if self.fabric_widget.hub_running:
+                return True
+        
+        return False
+    
     def _on_node_clicked(self, item: QListWidgetItem):
         """Handle node list item click - switch to Remote JACK tab and load that node's graph."""
         node_id = item.data(Qt.UserRole)
-        
-        # If local node, switch to Local JACK tab
-        if node_id == self.config.node.node_id:
-            for i in range(self.tabs.count()):
-                if self.tabs.tabText(i) == "Local JACK":
-                    self.tabs.setCurrentIndex(i)
-                    break
-            return
         
         # Switch to Remote JACK tab and load this node's graph
         for i in range(self.tabs.count()):
@@ -335,6 +361,12 @@ class VerdandiHall(QMainWindow):
                     self.remote_jack_canvas.canvas.remote_refresh_requested.connect(
                         lambda: self._load_remote_jack_graph(node_id, force_refresh=True)
                     )
+                    
+                    # Connect hub coordination signal
+                    self.remote_jack_canvas.hub_started.connect(self._on_any_hub_started)
+                    
+                    # Sync hub state in case a hub is already running
+                    self.remote_jack_canvas.sync_hub_state()
                     
                     self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
                     self.current_remote_node_id = node_id

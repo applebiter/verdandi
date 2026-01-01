@@ -749,6 +749,11 @@ class NodeCanvasWidget(QWidget):
         self.canvas = GraphCanvas(self.model)
         layout.addWidget(self.canvas)
         
+        # Add keyboard shortcut for Ctrl+S to save preset
+        from PySide6.QtGui import QShortcut, QKeySequence
+        save_shortcut = QShortcut(QKeySequence("Ctrl+S"), self)
+        save_shortcut.activated.connect(self._save_preset)
+        
         # Auto-refresh - DISABLED (interferes with dragging)
         # Use manual Refresh button instead
         # self._timer = QTimer(self)
@@ -1084,6 +1089,8 @@ JackCanvas = NodeCanvasWidget
 class JackCanvasWithControls(QWidget):
     """Wrapper for JackCanvas with JackTrip hub/client controls."""
     
+    hub_started = Signal()  # Emitted when hub starts (for coordination)
+    
     def __init__(self, jack_manager=None, parent=None, node_id=None, is_remote=False, remote_node=None):
         super().__init__(parent)
         self.jack_manager = jack_manager
@@ -1112,6 +1119,13 @@ class JackCanvasWithControls(QWidget):
             remote_node=remote_node
         )
         layout.addWidget(self.canvas)
+    
+    def sync_hub_state(self):
+        """Sync hub button state with current global hub state."""
+        # Check if any hub is running by looking at parent's state
+        if self.parent() and hasattr(self.parent(), '_is_any_hub_running'):
+            if self.parent()._is_any_hub_running():
+                self.start_hub_btn.setEnabled(False)
         
     def _create_control_panel(self):
         """Create JackTrip control panel."""
@@ -1224,6 +1238,9 @@ class JackCanvasWithControls(QWidget):
             self.start_hub_btn.setEnabled(False)
             self.stop_hub_btn.setEnabled(True)
             self.status_label.setText(f"Status: <b style='color: #6f6'>Hub Running</b> (port {port})")
+            
+            # Emit signal to coordinate with other control panels
+            self.hub_started.emit()
             
             QMessageBox.information(self, "Hub Started", 
                                   f"JackTrip hub server started {location} on port {port}.\n"
@@ -1340,9 +1357,10 @@ class JackCanvasWithControls(QWidget):
                 from verdandi_hall.grpc_client import VerdandiGrpcClient
                 with VerdandiGrpcClient(self.remote_node, timeout=30) as client:
                     response = client.start_jacktrip_client(
-                        server_host=host,
-                        server_port=port,
-                        channels=send_channels,
+                        hub_address=host,
+                        hub_port=port,
+                        send_channels=send_channels,
+                        receive_channels=receive_channels,
                         sample_rate=48000,
                         buffer_size=256
                     )

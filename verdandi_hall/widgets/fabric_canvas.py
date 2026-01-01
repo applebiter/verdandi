@@ -1367,6 +1367,8 @@ class FabricCanvas(QGraphicsView):
 class FabricCanvasWidget(QWidget):
     """Widget containing the fabric canvas with controls."""
     
+    hub_started = Signal()  # Emitted when hub starts (for coordination)
+    
     def __init__(self, config: VerdandiConfig, database: Database, jack_manager=None, parent=None):
         super().__init__(parent)
         self.config = config
@@ -1584,6 +1586,9 @@ class FabricCanvasWidget(QWidget):
             self.start_hub_btn.setEnabled(False)
             self.stop_hub_btn.setEnabled(True)
             self.hub_node_combo.setEnabled(False)
+            
+            # Emit signal to coordinate with other control panels
+            self.hub_started.emit()
             
             # Refresh canvas to update socket positions
             self.canvas.refresh()
