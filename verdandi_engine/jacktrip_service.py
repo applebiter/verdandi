@@ -41,12 +41,11 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             cmd = [
                 "jacktrip",
                 "-S",  # Hub server mode
-                "-p", str(port),
-                "-n", str(send_channels),
-                "-o", str(receive_channels),
+                "--bindport", str(port),
                 "-q", str(buffer_size),
                 "--bufstrategy", "3"  # Auto queue buffer strategy
             ]
+            # Note: Hub doesn't specify channels - clients do
             
             logger.info(f"Starting JackTrip hub: {' '.join(cmd)}")
             

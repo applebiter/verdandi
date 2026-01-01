@@ -668,7 +668,7 @@ class NodeCanvasWidget(QWidget):
     def __init__(self, jack_manager: Optional[JackClientManager] = None, parent=None, node_id: str = None):
         super().__init__(parent)
         self.jack_manager = jack_manager
-        self.node_id = node_id  # For remote nodes, stores the node_id to use for state
+        self.node_id = node_id or "local"  # Default to "local" for local canvas
         
         # Determine presets directory based on node_id
         if node_id:
@@ -679,7 +679,10 @@ class NodeCanvasWidget(QWidget):
             self.presets_dir = Path.home() / ".config" / "skeleton-app" / "jack-presets"
         
         self.presets_dir.mkdir(parents=True, exist_ok=True)
-        self.last_preset_file = self.presets_dir / ".last_preset"
+        
+        # Per-node last preset tracking
+        self.last_preset_map_file = Path.home() / ".config" / "verdandi" / "jack_last_presets.json"
+        self.last_preset_map_file.parent.mkdir(parents=True, exist_ok=True)
         
         # Model
         self.model = GraphModel()
@@ -722,10 +725,12 @@ class NodeCanvasWidget(QWidget):
         # self._timer.timeout.connect(self.refresh_from_jack)
         # self._timer.start(2000)
         
-        self.refresh_from_jack()
+        # Only auto-refresh and load preset if we have a jack_manager (local canvas)
+        # Remote canvases will be populated manually and then load preset
+        if jack_manager:
+            self.refresh_from_jack()
+            self._load_last_preset()
         
-        # Auto-load last used preset
-        self._load_last_preset()
         self._refresh_preset_list()
     
     def set_jack_manager(self, jack_manager: Optional[JackClientManager]):
@@ -733,6 +738,8 @@ class NodeCanvasWidget(QWidget):
         self.jack_manager = jack_manager
         if jack_manager:
             self.refresh_from_jack()
+            # Load last preset now that we have data
+            self._load_last_preset()
     
     def refresh_from_jack(self):
         """Update model from JACK state."""
@@ -855,6 +862,32 @@ class NodeCanvasWidget(QWidget):
         except Exception as e:
             logger.error(f"Error refreshing from JACK: {e}", exc_info=True)
     
+    def _get_last_preset_for_node(self) -> Optional[str]:
+        """Get the last used preset name for this node."""
+        try:
+            if self.last_preset_map_file.exists():
+                with open(self.last_preset_map_file, 'r') as f:
+                    preset_map = json.load(f)
+                    return preset_map.get(self.node_id)
+        except Exception as e:
+            logger.error(f"Failed to read last preset map: {e}")
+        return None
+    
+    def _set_last_preset_for_node(self, preset_name: str):
+        """Store the last used preset name for this node."""
+        try:
+            preset_map = {}
+            if self.last_preset_map_file.exists():
+                with open(self.last_preset_map_file, 'r') as f:
+                    preset_map = json.load(f)
+            
+            preset_map[self.node_id] = preset_name
+            
+            with open(self.last_preset_map_file, 'w') as f:
+                json.dump(preset_map, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to write last preset map: {e}")
+    
     def _save_preset(self):
         # Prepopulate with current preset name if available
         default_name = self.current_preset_name or ""
@@ -871,10 +904,9 @@ class NodeCanvasWidget(QWidget):
             with open(path, 'w') as f:
                 json.dump(data, f, indent=2)
             
-            # Mark as current and last used preset
+            # Mark as current and last used preset for this node
             self.current_preset_name = name
-            with open(self.last_preset_file, 'w') as f:
-                f.write(name)
+            self._set_last_preset_for_node(name)
             
             self._refresh_preset_list()
             # Update combo box to show current preset
@@ -901,21 +933,30 @@ class NodeCanvasWidget(QWidget):
         # Load aliases
         self.model.aliases = data.get("aliases", {})
         
-        # Apply connections
-        for out_port, in_ports in data.get("connections", {}).items():
-            for in_port in in_ports:
-                try:
-                    self.jack_manager.connect_ports(out_port, in_port)
-                except:
-                    pass
+        # Apply positions immediately to existing nodes
+        for node_name, (x, y) in self._preset_positions.items():
+            if node_name in self.model.nodes:
+                self.model.move_node(node_name, x, y)
         
-        # Mark as current and last used preset
+        # Apply connections (only if jack_manager available)
+        if self.jack_manager:
+            for out_port, in_ports in data.get("connections", {}).items():
+                for in_port in in_ports:
+                    try:
+                        self.jack_manager.connect_ports(out_port, in_port)
+                    except:
+                        pass
+        
+        # Mark as current and last used preset for this node
         self.current_preset_name = name
-        with open(self.last_preset_file, 'w') as f:
-            f.write(name)
+        self._set_last_preset_for_node(name)
         
-        # Refresh will apply positions
-        self.refresh_from_jack()
+        # Refresh if jack_manager available, otherwise trigger view rebuild
+        if self.jack_manager:
+            self.refresh_from_jack()
+        else:
+            # For remote canvases without jack_manager, just rebuild the view
+            self.model.changed.emit()
         
         QMessageBox.information(self, "Success", f"Preset '{name}' loaded!")
     
@@ -932,13 +973,10 @@ class NodeCanvasWidget(QWidget):
             self.preset_combo.setCurrentIndex(idx)
     
     def _load_last_preset(self):
-        """Automatically load the last used preset."""
-        if not self.last_preset_file.exists():
-            return
-        
+        """Automatically load the last used preset for this node."""
         try:
-            with open(self.last_preset_file, 'r') as f:
-                last_preset_name = f.read().strip()
+            # Get last preset name for this specific node
+            last_preset_name = self._get_last_preset_for_node()
             
             if not last_preset_name:
                 return
@@ -973,24 +1011,360 @@ class NodeCanvasWidget(QWidget):
             # Load aliases
             self.model.aliases = data.get("aliases", {})
             
-            # Apply connections
-            for out_port, in_ports in data.get("connections", {}).items():
-                for in_port in in_ports:
-                    try:
-                        self.jack_manager.connect_ports(out_port, in_port)
-                    except:
-                        pass
+            # Apply positions immediately to existing nodes
+            for node_name, (x, y) in self._preset_positions.items():
+                if node_name in self.model.nodes:
+                    self.model.move_node(node_name, x, y)
+            
+            # Apply connections (only if jack_manager available)
+            if self.jack_manager:
+                for out_port, in_ports in data.get("connections", {}).items():
+                    for in_port in in_ports:
+                        try:
+                            self.jack_manager.connect_ports(out_port, in_port)
+                        except:
+                            pass
             
             # Mark as current preset
             self.current_preset_name = name
             
-            # Refresh will apply positions
-            self.refresh_from_jack()
+            # Refresh if jack_manager available, otherwise trigger view rebuild
+            if self.jack_manager:
+                self.refresh_from_jack()
+            else:
+                # For remote canvases without jack_manager, just rebuild the view
+                self.model.changed.emit()
             
-            logger.info(f"Auto-loaded preset '{name}'")
+            logger.info(f"Auto-loaded preset '{name}' for node {self.node_id}")
         except Exception as e:
             logger.error(f"Error loading preset: {e}")
 
 
 # Alias for Verdandi integration
 JackCanvas = NodeCanvasWidget
+
+
+# ============================================================================
+# JackCanvasWidget - Wrapper with JackTrip controls
+# ============================================================================
+
+class JackCanvasWithControls(QWidget):
+    """Wrapper for JackCanvas with JackTrip hub/client controls."""
+    
+    def __init__(self, jack_manager=None, parent=None, node_id=None, is_remote=False, remote_node=None):
+        super().__init__(parent)
+        self.jack_manager = jack_manager
+        self.node_id = node_id
+        self.is_remote = is_remote
+        self.remote_node = remote_node  # Node object for remote operations
+        
+        # State tracking
+        self.hub_running = False
+        self.client_connected = False
+        self.hub_host = None
+        self.hub_port = 4464
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Control panel
+        controls = self._create_control_panel()
+        layout.addWidget(controls)
+        
+        # Canvas - pass node_id so remote nodes get separate preset storage
+        self.canvas = NodeCanvasWidget(jack_manager=jack_manager, parent=self, node_id=node_id)
+        layout.addWidget(self.canvas)
+        
+    def _create_control_panel(self):
+        """Create JackTrip control panel."""
+        panel = QWidget()
+        panel.setStyleSheet("QWidget { background: #2a2a2a; padding: 5px; }")
+        layout = QHBoxLayout(panel)
+        
+        # Title
+        title = "Local JackTrip Controls" if not self.is_remote else f"Remote JackTrip Controls"
+        layout.addWidget(QLabel(f"<b>{title}</b>"))
+        
+        # Hub controls
+        layout.addWidget(QLabel("Hub:"))
+        self.start_hub_btn = QPushButton("▶️ Start Hub")
+        self.start_hub_btn.clicked.connect(self._on_start_hub)
+        layout.addWidget(self.start_hub_btn)
+        
+        self.stop_hub_btn = QPushButton("⏹️ Stop Hub")
+        self.stop_hub_btn.clicked.connect(self._on_stop_hub)
+        self.stop_hub_btn.setEnabled(False)
+        layout.addWidget(self.stop_hub_btn)
+        
+        layout.addWidget(QLabel("|"))
+        
+        # Client controls
+        layout.addWidget(QLabel("Client:"))
+        self.connect_client_btn = QPushButton("🔌 Connect to Hub")
+        self.connect_client_btn.clicked.connect(self._on_connect_client)
+        layout.addWidget(self.connect_client_btn)
+        
+        self.disconnect_client_btn = QPushButton("❌ Disconnect")
+        self.disconnect_client_btn.clicked.connect(self._on_disconnect_client)
+        self.disconnect_client_btn.setEnabled(False)
+        layout.addWidget(self.disconnect_client_btn)
+        
+        layout.addWidget(QLabel("|"))
+        
+        # Status
+        self.status_label = QLabel("Status: <i>Idle</i>")
+        layout.addWidget(self.status_label)
+        
+        layout.addStretch()
+        return panel
+    
+    def _on_start_hub(self):
+        """Start JackTrip hub server."""
+        from PySide6.QtWidgets import QDialog, QFormLayout, QSpinBox, QDialogButtonBox
+        
+        # Configuration dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Start JackTrip Hub")
+        layout = QFormLayout(dialog)
+        
+        layout.addRow(QLabel("<b>Hub Server Configuration</b>"))
+        layout.addRow(QLabel("Clients will connect to this hub to share audio."))
+        layout.addRow(QLabel("Each client will specify their own send/receive channels."))
+        
+        port_spin = QSpinBox()
+        port_spin.setRange(1024, 65535)
+        port_spin.setValue(4464)
+        layout.addRow("Port:", port_spin)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        port = port_spin.value()
+        
+        try:
+            if self.is_remote:
+                # Start hub on remote node via gRPC
+                from verdandi_hall.grpc_client import VerdandiGrpcClient
+                with VerdandiGrpcClient(self.remote_node, timeout=30) as client:
+                    response = client.start_jacktrip_hub(
+                        send_channels=2,  # Default, clients will specify their own
+                        receive_channels=2,
+                        sample_rate=48000,
+                        buffer_size=256,
+                        port=port
+                    )
+                location = f"on {self.remote_node.hostname}"
+            else:
+                # Start hub locally via subprocess
+                import subprocess
+                cmd = [
+                    "jacktrip", "-S",
+                    "--bindport", str(port)
+                ]
+                try:
+                    # Start process and capture output for error checking
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    # Give it a moment to fail if there's an immediate error
+                    import time
+                    time.sleep(0.5)
+                    poll = proc.poll()
+                    if poll is not None:
+                        # Process died, get error
+                        _, stderr = proc.communicate()
+                        raise Exception(f"JackTrip hub failed to start: {stderr.decode()}")
+                    location = "locally"
+                except Exception as e:
+                    raise Exception(f"Failed to start local hub: {e}")
+            
+            self.hub_running = True
+            self.hub_port = port
+            self.start_hub_btn.setEnabled(False)
+            self.stop_hub_btn.setEnabled(True)
+            self.status_label.setText(f"Status: <b style='color: #6f6'>Hub Running</b> (port {port})")
+            
+            QMessageBox.information(self, "Hub Started", 
+                                  f"JackTrip hub server started {location} on port {port}.\n"
+                                  f"Clients can now connect.")
+            
+            # Refresh canvas after a moment to show new JACK client
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            
+        except Exception as e:
+            logger.error(f"Failed to start hub: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to start hub: {e}")
+    
+    def _on_stop_hub(self):
+        """Stop JackTrip hub server."""
+        try:
+            if self.is_remote:
+                # Stop hub on remote node via gRPC
+                from verdandi_hall.grpc_client import VerdandiGrpcClient
+                with VerdandiGrpcClient(self.remote_node, timeout=30) as client:
+                    response = client.stop_jacktrip_hub()
+                location = f"on {self.remote_node.hostname}"
+            else:
+                # Stop hub locally
+                import subprocess
+                subprocess.run(["pkill", "-f", "jacktrip.*-S"], check=False)
+                location = "locally"
+            
+            self.hub_running = False
+            self.start_hub_btn.setEnabled(True)
+            self.stop_hub_btn.setEnabled(False)
+            self.status_label.setText("Status: <i>Idle</i>")
+            
+            QMessageBox.information(self, "Hub Stopped", f"JackTrip hub server stopped {location}.")
+            
+            # Refresh canvas
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            
+        except Exception as e:
+            logger.error(f"Failed to stop hub: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to stop hub: {e}")
+    
+    def _on_connect_client(self):
+        """Connect as client to a hub."""
+        from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QSpinBox, QDialogButtonBox
+        
+        # Configuration dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Connect to JackTrip Hub")
+        layout = QFormLayout(dialog)
+        
+        layout.addRow(QLabel("<b>Client Configuration</b>"))
+        layout.addRow(QLabel("Connect to a running JackTrip hub server."))
+        
+        host_edit = QLineEdit()
+        host_edit.setPlaceholderText("192.168.1.100 or hostname")
+        layout.addRow("Hub Host:", host_edit)
+        
+        port_spin = QSpinBox()
+        port_spin.setRange(1024, 65535)
+        port_spin.setValue(4464)
+        layout.addRow("Hub Port:", port_spin)
+        
+        send_channels_spin = QSpinBox()
+        send_channels_spin.setRange(1, 8)
+        send_channels_spin.setValue(2)
+        layout.addRow("Send Channels (to hub):", send_channels_spin)
+        
+        receive_channels_spin = QSpinBox()
+        receive_channels_spin.setRange(1, 8)
+        receive_channels_spin.setValue(2)
+        layout.addRow("Receive Channels (from hub):", receive_channels_spin)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addRow(buttons)
+        
+        if dialog.exec() != QDialog.Accepted:
+            return
+        
+        host = host_edit.text().strip()
+        if not host:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a hub host address.")
+            return
+        
+        port = port_spin.value()
+        send_channels = send_channels_spin.value()
+        receive_channels = receive_channels_spin.value()
+        
+        try:
+            if self.is_remote:
+                # Start client on remote node via gRPC
+                from verdandi_hall.grpc_client import VerdandiGrpcClient
+                with VerdandiGrpcClient(self.remote_node, timeout=30) as client:
+                    response = client.start_jacktrip_client(
+                        server_host=host,
+                        server_port=port,
+                        channels=send_channels,
+                        sample_rate=48000,
+                        buffer_size=256
+                    )
+                location = f"on {self.remote_node.hostname}"
+            else:
+                # Start client locally via subprocess
+                import subprocess
+                cmd = [
+                    "jacktrip", "-C", host,
+                    "--bindport", str(port),
+                    "--sendchannels", str(send_channels),
+                    "--receivechannels", str(receive_channels)
+                ]
+                try:
+                    # Start process and capture output for error checking
+                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    # Give it a moment to fail if there's an immediate error
+                    import time
+                    time.sleep(0.5)
+                    poll = proc.poll()
+                    if poll is not None:
+                        # Process died, get error
+                        _, stderr = proc.communicate()
+                        raise Exception(f"JackTrip client failed to connect: {stderr.decode()}")
+                    location = "locally"
+                except Exception as e:
+                    raise Exception(f"Failed to start local client: {e}")
+            
+            self.client_connected = True
+            self.hub_host = host
+            self.hub_port = port
+            self.connect_client_btn.setEnabled(False)
+            self.disconnect_client_btn.setEnabled(True)
+            self.status_label.setText(f"Status: <b style='color: #6f6'>Connected</b> to {host}:{port}")
+            
+            QMessageBox.information(self, "Client Connected", 
+                                  f"JackTrip client {location} connected to {host}:{port}.")
+            
+            # Refresh canvas after a moment to show new JACK client
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            
+        except Exception as e:
+            logger.error(f"Failed to connect client: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to connect client: {e}")
+    
+    def _on_disconnect_client(self):
+        """Disconnect client from hub."""
+        try:
+            if self.is_remote:
+                # Stop client on remote node via gRPC
+                from verdandi_hall.grpc_client import VerdandiGrpcClient
+                with VerdandiGrpcClient(self.remote_node, timeout=30) as client:
+                    response = client.stop_jacktrip_client()
+                location = f"on {self.remote_node.hostname}"
+            else:
+                # Stop client locally
+                import subprocess
+                subprocess.run(["pkill", "-f", "jacktrip.*-C"], check=False)
+                location = "locally"
+            
+            self.client_connected = False
+            self.hub_host = None
+            self.connect_client_btn.setEnabled(True)
+            self.disconnect_client_btn.setEnabled(False)
+            self.status_label.setText("Status: <i>Idle</i>")
+            
+            QMessageBox.information(self, "Client Disconnected", 
+                                  f"JackTrip client {location} disconnected.")
+            
+            # Refresh canvas
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            
+        except Exception as e:
+            logger.error(f"Failed to disconnect client: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to disconnect client: {e}")
+    
+    def set_jack_manager(self, jack_manager):
+        """Set the JACK manager for the canvas."""
+        self.jack_manager = jack_manager
+        self.canvas.set_jack_manager(jack_manager)
