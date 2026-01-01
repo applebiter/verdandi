@@ -51,7 +51,7 @@ class DaemonConfig:
     mdns_service_name: str = "_verdandi._tcp.local."
     
     # TLS/mTLS
-    tls_enabled: bool = True
+    tls_enabled: bool = False
     cert_path: Optional[str] = None
     key_path: Optional[str] = None
     ca_cert_path: Optional[str] = None
