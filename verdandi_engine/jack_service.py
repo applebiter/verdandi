@@ -41,35 +41,44 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
             return verdandi_pb2.JackGraphResponse()
         
         try:
-            # Get all ports grouped by client
-            all_ports = jack_mgr.get_all_ports()
+            # Get all ports
+            all_ports = jack_mgr.get_ports()
+            output_ports = set(jack_mgr.get_ports(is_output=True))
             
             # Group ports by client name
             clients_dict = {}
-            for port in all_ports:
+            for port_name in all_ports:
                 # Port format is "client_name:port_name"
-                if ':' in port:
-                    client_name, port_name = port.split(':', 1)
-                    if client_name not in clients_dict:
-                        clients_dict[client_name] = {
-                            'name': client_name,
-                            'input_ports': [],
-                            'output_ports': []
-                        }
+                if ':' not in port_name:
+                    continue
                     
-                    is_output = jack_mgr.is_output_port(port)
-                    is_midi = jack_mgr.is_midi_port(port)
-                    
-                    port_info = verdandi_pb2.JackPort(
-                        name=port_name,
-                        full_name=port,
-                        is_midi=is_midi
-                    )
-                    
-                    if is_output:
-                        clients_dict[client_name]['output_ports'].append(port_info)
-                    else:
-                        clients_dict[client_name]['input_ports'].append(port_info)
+                client_name, port_short = port_name.split(':', 1)
+                if client_name not in clients_dict:
+                    clients_dict[client_name] = {
+                        'name': client_name,
+                        'input_ports': [],
+                        'output_ports': []
+                    }
+                
+                # Check if port is output and if it's MIDI
+                is_output = port_name in output_ports
+                is_midi = False
+                try:
+                    port_obj = jack_mgr.client.get_port_by_name(port_name)
+                    is_midi = port_obj.is_midi
+                except Exception as e:
+                    logger.warning(f"Error checking port type for {port_name}: {e}")
+                
+                port_info = verdandi_pb2.JackPort(
+                    name=port_short,
+                    full_name=port_name,
+                    is_midi=is_midi
+                )
+                
+                if is_output:
+                    clients_dict[client_name]['output_ports'].append(port_info)
+                else:
+                    clients_dict[client_name]['input_ports'].append(port_info)
             
             # Build client list
             clients = []
