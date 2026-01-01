@@ -646,7 +646,8 @@ class FabricCanvas(QGraphicsView):
                             hub_node_db = session.query(Node).filter_by(node_id=hub_node_id).first()
                             
                             if client_node_db and hub_node_db:
-                                session.expunge_all()\n                                
+                                session.expunge_all()
+                                
                                 # Start JackTrip client on client node, connecting to hub node
                                 with VerdandiGrpcClient(client_node_db) as client_grpc:
                                     parent = self.parentWidget()
