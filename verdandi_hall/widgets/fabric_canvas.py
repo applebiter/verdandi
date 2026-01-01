@@ -649,7 +649,7 @@ class FabricCanvas(QGraphicsView):
                                 session.expunge_all()
                                 
                                 # Start JackTrip client on client node, connecting to hub node
-                                with VerdandiGrpcClient(client_node_db) as client_grpc:
+                                with VerdandiGrpcClient(client_node_db, timeout=30) as client_grpc:
                                     parent = self.parentWidget()
                                     sample_rate = getattr(parent, 'sample_rate', 48000)
                                     buffer_size = getattr(parent, 'buffer_size', 128)
@@ -714,7 +714,7 @@ class FabricCanvas(QGraphicsView):
                         client_node_db = session.query(Node).filter_by(node_id=client_id).first()
                         if client_node_db:
                             session.expunge(client_node_db)
-                            with VerdandiGrpcClient(client_node_db) as client_grpc:
+                            with VerdandiGrpcClient(client_node_db, timeout=30) as client_grpc:
                                 client_grpc.stop_jacktrip_client()
                                 logger.info(f"Stopped JackTrip client on {client_node_db.hostname}")
                 except Exception as e:
@@ -1404,7 +1404,7 @@ class FabricCanvasWidget(QWidget):
             # Call gRPC to start hub
             from verdandi_hall.grpc_client import VerdandiGrpcClient
             
-            with VerdandiGrpcClient(node) as client:
+            with VerdandiGrpcClient(node, timeout=30) as client:
                 response = client.start_jacktrip_hub(
                     send_channels=2,
                     receive_channels=2,
@@ -1451,7 +1451,7 @@ class FabricCanvasWidget(QWidget):
                     
                     # Call gRPC to stop hub
                     from verdandi_hall.grpc_client import VerdandiGrpcClient
-                    with VerdandiGrpcClient(node) as client:
+                    with VerdandiGrpcClient(node, timeout=30) as client:
                         client.stop_jacktrip_hub()
         except Exception as e:
             logger.error(f"Failed to stop hub: {e}", exc_info=True)
