@@ -1584,6 +1584,27 @@ class JackCanvasWithControls(QWidget):
             else:
                 # Restart local daemon
                 import subprocess
+                
+                # First check if the systemd service exists
+                check_result = subprocess.run(
+                    ["systemctl", "list-units", "--all", "--type=service", "--no-pager"],
+                    capture_output=True, text=True
+                )
+                
+                service_exists = "verdandi-daemon.service" in check_result.stdout
+                
+                if not service_exists:
+                    # Service not installed - provide instructions
+                    QMessageBox.warning(
+                        self, "Service Not Installed",
+                        "The verdandi-daemon systemd service is not installed.\n\n"
+                        "To restart the daemon:\n"
+                        "1. If running manually: Stop the daemon (Ctrl+C) and restart it\n"
+                        "2. To install as a service, create /etc/systemd/system/verdandi-daemon.service\n\n"
+                        "For now, you'll need to manually restart the daemon process."
+                    )
+                    return
+                
                 result = subprocess.run(
                     ["sudo", "systemctl", "restart", "verdandi-daemon"],
                     capture_output=True, text=True, timeout=10
