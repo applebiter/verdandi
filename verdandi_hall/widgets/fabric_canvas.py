@@ -75,12 +75,9 @@ class ConnectionPort(QGraphicsEllipseItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CrossCursor)
         
-        # Position: output on right, input on left
+        # Position: single socket at bottom of node
         radius = 45 if isinstance(parent_item, FabricNodeItem) else 35
-        if is_output:
-            self.setPos(radius, 0)  # Right side
-        else:
-            self.setPos(-radius, 0)  # Left side
+        self.setPos(0, radius)  # Bottom center
     
     def hoverEnterEvent(self, event):
         self.setBrush(QBrush(QColor(255, 200, 100)))
@@ -248,9 +245,8 @@ class LinkNodeItem(QGraphicsPolygonItem):
         
         self.setAcceptHoverEvents(True)
         
-        # Add connection ports: input on left, output on right
-        self.input_port = ConnectionPort(self, is_output=False)
-        self.output_port = ConnectionPort(self, is_output=True)
+        # Add single connection socket at bottom
+        self.socket = ConnectionPort(self, is_output=True)
     
     def itemChange(self, change, value):
         """Update wire positions when node moves and save position to database."""
@@ -343,9 +339,8 @@ class FabricNodeItem(QGraphicsEllipseItem):
                   f"Double-click: Open JACK graph")
         self.setToolTip(tooltip)
         
-        # Add connection ports: input on left, output on right
-        self.input_port = ConnectionPort(self, is_output=False)
-        self.output_port = ConnectionPort(self, is_output=True)
+        # Add single connection socket at bottom
+        self.socket = ConnectionPort(self, is_output=True)
     
     def itemChange(self, change, value):
         """Update wire positions when node moves."""
@@ -424,6 +419,10 @@ class FabricCanvas(QGraphicsView):
     def start_connection_drag(self, start_pos: QPointF, start_item, is_output: bool):
         """Start dragging a temporary connection line."""
         from PySide6.QtWidgets import QGraphicsLineItem
+        
+        # Stop auto-refresh during wire dragging
+        self.refresh_timer.stop()
+        
         self._temp_start_pos = start_pos
         self._temp_start_item = start_item
         self._temp_start_is_output = is_output
@@ -483,6 +482,10 @@ class FabricCanvas(QGraphicsView):
             # Clear temp state AFTER using it
             self._temp_start_pos = None
             self._temp_start_item = None
+            
+            # Restart auto-refresh timer
+            self.refresh_timer.start(5000)
+            
             event.accept()
             return
         
@@ -500,8 +503,8 @@ class FabricCanvas(QGraphicsView):
         # Create new wire
         wire = ConnectionWire(
             from_item, to_item,
-            from_port=from_item.output_port if hasattr(from_item, 'output_port') else None,
-            to_port=to_item.input_port if hasattr(to_item, 'input_port') else None,
+            from_port=from_item.socket if hasattr(from_item, 'socket') else None,
+            to_port=to_item.socket if hasattr(to_item, 'socket') else None,
             parent_canvas=self
         )
         self.scene.addItem(wire)
@@ -926,8 +929,8 @@ class FabricCanvas(QGraphicsView):
                             # Wire from link output to hub input (hub is receiving)
                             wire_hub = ConnectionWire(
                                 link_node, hub_node,
-                                from_port=link_node.output_port,
-                                to_port=hub_node.input_port,
+                                from_port=link_node.socket,
+                                to_port=hub_node.socket,
                                 parent_canvas=self
                             )
                             self.scene.addItem(wire_hub)
@@ -940,8 +943,8 @@ class FabricCanvas(QGraphicsView):
                                 client_node = self.fabric_nodes[client_node_id]
                                 wire_client = ConnectionWire(
                                     client_node, link_node,
-                                    from_port=client_node.output_port,
-                                    to_port=link_node.input_port,
+                                    from_port=client_node.socket,
+                                    to_port=link_node.socket,
                                     parent_canvas=self
                                 )
                                 self.scene.addItem(wire_client)
@@ -957,8 +960,8 @@ class FabricCanvas(QGraphicsView):
                             src_node = self.fabric_nodes[src_id]
                             wire1 = ConnectionWire(
                                 src_node, link_node,
-                                from_port=src_node.output_port,
-                                to_port=link_node.input_port,
+                                from_port=src_node.socket,
+                                to_port=link_node.socket,
                                 parent_canvas=self
                             )
                             self.scene.addItem(wire1)
@@ -969,8 +972,8 @@ class FabricCanvas(QGraphicsView):
                                 tgt_node = self.fabric_nodes[tgt_id]
                                 wire2 = ConnectionWire(
                                     link_node, tgt_node,
-                                    from_port=link_node.output_port,
-                                    to_port=tgt_node.input_port,
+                                    from_port=link_node.socket,
+                                    to_port=tgt_node.socket,
                             parent_canvas=self
                         )
                         self.scene.addItem(wire2)
@@ -985,8 +988,8 @@ class FabricCanvas(QGraphicsView):
                     # Wire from client to hub
                     wire = ConnectionWire(
                         client_node, hub_node,
-                        from_port=client_node.output_port,
-                        to_port=hub_node.input_port,
+                        from_port=client_node.socket,
+                        to_port=hub_node.socket,
                         parent_canvas=self
                     )
                     self.scene.addItem(wire)
