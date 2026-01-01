@@ -767,6 +767,9 @@ class NodeCanvasWidget(QWidget):
             self._load_last_preset()
         
         self._refresh_preset_list()
+        
+        # Callback for notifying parent about JackTrip state
+        self._jacktrip_state_detected = None
     
     def set_jack_manager(self, jack_manager: Optional[JackClientManager]):
         """Set or update the JACK manager."""
@@ -896,9 +899,31 @@ class NodeCanvasWidget(QWidget):
             
             # End batch - trigger single rebuild
             self.model.end_batch()
+            
+            # Detect JackTrip state from the graph and update buttons
+            self._detect_jacktrip_state_from_clients(list(clients.keys()))
         
         except Exception as e:
             logger.error(f"Error refreshing from JACK: {e}", exc_info=True)
+    
+    def _detect_jacktrip_state_from_clients(self, client_names: List[str]):
+        """Detect if JackTrip hub or client is running based on JACK client names."""
+        has_hub = False
+        has_client = False
+        
+        for client_name in client_names:
+            client_lower = client_name.lower()
+            # Check for JackTrip hub (usually just "jacktrip" or contains "jacktrip")
+            # Hub mode typically shows as just "jacktrip"
+            if client_lower == "jacktrip":
+                has_hub = True
+            # Check for JackTrip client (contains hostname or "jacktrip-" prefix)
+            elif "jacktrip" in client_lower and client_lower != "jacktrip":
+                has_client = True
+        
+        # Notify parent widget if callback is set
+        if self._jacktrip_state_detected:
+            self._jacktrip_state_detected(has_hub, has_client)
     
     def _get_last_preset_for_node(self) -> Optional[str]:
         """Get the last used preset name for this node."""
@@ -1119,6 +1144,24 @@ class JackCanvasWithControls(QWidget):
             remote_node=remote_node
         )
         layout.addWidget(self.canvas)
+        
+        # Connect to canvas's jacktrip state detection
+        self.canvas._jacktrip_state_detected = self._on_jacktrip_state_detected
+    
+    def _on_jacktrip_state_detected(self, has_hub: bool, has_client: bool):
+        """Called when JackTrip state is detected from JACK graph."""
+        if has_hub:
+            self.hub_running = True
+            self.start_hub_btn.setEnabled(False)
+            self.stop_hub_btn.setEnabled(True)
+            self.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
+        
+        if has_client:
+            self.client_connected = True
+            self.connect_client_btn.setEnabled(False)
+            self.disconnect_client_btn.setEnabled(True)
+            if not has_hub:  # Only update status if hub isn't also running
+                self.status_label.setText("Status: <b style='color: #6f6'>Connected</b>")
     
     def sync_hub_state(self):
         """Sync hub button state with current global hub state."""
@@ -1160,6 +1203,14 @@ class JackCanvasWithControls(QWidget):
         self.disconnect_client_btn.clicked.connect(self._on_disconnect_client)
         self.disconnect_client_btn.setEnabled(False)
         layout.addWidget(self.disconnect_client_btn)
+        
+        layout.addWidget(QLabel("|"))
+        
+        # Daemon control
+        layout.addWidget(QLabel("Daemon:"))
+        self.restart_daemon_btn = QPushButton("🔄 Restart")
+        self.restart_daemon_btn.clicked.connect(self._on_restart_daemon)
+        layout.addWidget(self.restart_daemon_btn)
         
         layout.addWidget(QLabel("|"))
         
@@ -1456,6 +1507,67 @@ class JackCanvasWithControls(QWidget):
         except Exception as e:
             logger.error(f"Failed to disconnect client: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to disconnect client: {e}")
+    
+    def _on_restart_daemon(self):
+        """Restart the Verdandi daemon on the associated host."""
+        if self.is_remote:
+            hostname = self.remote_node.hostname
+            confirm_msg = f"Restart the Verdandi daemon on {hostname}?\n\nThis will temporarily interrupt all services on that node."
+        else:
+            hostname = "localhost"
+            confirm_msg = "Restart the local Verdandi daemon?\n\nThis will temporarily interrupt all local services and close this GUI."
+        
+        reply = QMessageBox.question(
+            self, "Confirm Restart",
+            confirm_msg,
+            QMessageBox.Yes | QMessageBox.No
+        )
+        
+        if reply != QMessageBox.Yes:
+            return
+        
+        try:
+            if self.is_remote:
+                # Restart daemon on remote node via systemctl over SSH
+                import subprocess
+                ssh_cmd = [
+                    "ssh", f"sysadmin@{self.remote_node.ip_last_seen}",
+                    "sudo", "systemctl", "restart", "verdandi-daemon"
+                ]
+                result = subprocess.run(ssh_cmd, capture_output=True, text=True, timeout=10)
+                
+                if result.returncode == 0:
+                    QMessageBox.information(self, "Daemon Restarting", 
+                                          f"Daemon restart initiated on {hostname}.\n\n"
+                                          f"Services will be temporarily unavailable.")
+                    # Wait a moment then refresh
+                    from PySide6.QtCore import QTimer
+                    QTimer.singleShot(3000, self.canvas.remote_refresh_requested.emit)
+                else:
+                    raise Exception(f"SSH command failed: {result.stderr}")
+            else:
+                # Restart local daemon
+                import subprocess
+                result = subprocess.run(
+                    ["sudo", "systemctl", "restart", "verdandi-daemon"],
+                    capture_output=True, text=True, timeout=10
+                )
+                
+                if result.returncode == 0:
+                    QMessageBox.information(self, "Daemon Restarting", 
+                                          "Local daemon restart initiated.\n\n"
+                                          "This GUI will close. Please restart it after the daemon comes back up.")
+                    # Close the GUI
+                    import sys
+                    sys.exit(0)
+                else:
+                    raise Exception(f"Restart command failed: {result.stderr}")
+                    
+        except subprocess.TimeoutExpired:
+            QMessageBox.warning(self, "Timeout", "Daemon restart command timed out. Check system status manually.")
+        except Exception as e:
+            logger.error(f"Failed to restart daemon: {e}", exc_info=True)
+            QMessageBox.critical(self, "Error", f"Failed to restart daemon: {e}")
     
     def set_jack_manager(self, jack_manager):
         """Set the JACK manager for the canvas."""
