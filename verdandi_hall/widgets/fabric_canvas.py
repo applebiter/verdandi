@@ -718,7 +718,7 @@ class FabricCanvas(QGraphicsView):
                                 client_grpc.stop_jacktrip_client()
                                 logger.info(f"Stopped JackTrip client on {client_node_db.hostname}")
                 except Exception as e:
-                    logger.error(f"Failed to stop JackTrip client: {e}\", exc_info=True)
+                    logger.error(f"Failed to stop JackTrip client: {e}", exc_info=True)
                 
                 # Save updated connections
                 self._save_hub_connections()
