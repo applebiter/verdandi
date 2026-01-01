@@ -756,34 +756,34 @@ class FabricCanvas(QGraphicsView):
                 logger.error(f"Failed to update link after wire deletion: {e}", exc_info=True)
     
     def _save_hub_connections(self):
-        \"\"\"Save hub-client connections to file for persistence.\"\"\"
+        """Save hub-client connections to file for persistence."""
         from pathlib import Path
         import json
         
-        config_dir = Path.home() / \".config\" / \"verdandi\" / \"fabric\"
+        config_dir = Path.home() / ".config" / "verdandi" / "fabric"
         config_dir.mkdir(parents=True, exist_ok=True)
-        config_file = config_dir / \"hub_connections.json\"
+        config_file = config_dir / "hub_connections.json"
         
         try:
             # Convert tuple keys to strings for JSON serialization
             serializable = {}
             for (client_id, hub_id), conn_info in self.hub_client_connections.items():
-                key = f\"{client_id}:{hub_id}\"
+                key = f"{client_id}:{hub_id}"
                 serializable[key] = conn_info
             
             with open(config_file, 'w') as f:
                 json.dump(serializable, f, indent=2)
             
-            logger.info(f\"Saved {len(serializable)} hub connections to {config_file}\")
+            logger.info(f"Saved {len(serializable)} hub connections to {config_file}")
         except Exception as e:
-            logger.error(f\"Failed to save hub connections: {e}\", exc_info=True)
+            logger.error(f"Failed to save hub connections: {e}", exc_info=True)
     
     def _load_hub_connections(self):
-        \"\"\"Load hub-client connections from file.\"\"\"
+        """Load hub-client connections from file."""
         from pathlib import Path
         import json
         
-        config_file = Path.home() / \".config\" / \"verdandi\" / \"fabric\" / \"hub_connections.json\"
+        config_file = Path.home() / ".config" / "verdandi" / "fabric" / "hub_connections.json"
         
         if not config_file.exists():
             return
@@ -799,9 +799,9 @@ class FabricCanvas(QGraphicsView):
                     tuple_key = (client_id, hub_id)
                     self.hub_client_connections[tuple_key] = conn_info
             
-            logger.info(f\"Loaded {len(self.hub_client_connections)} hub connections from {config_file}\")
+            logger.info(f"Loaded {len(self.hub_client_connections)} hub connections from {config_file}")
         except Exception as e:
-            logger.error(f\"Failed to load hub connections: {e}\", exc_info=True)
+            logger.error(f"Failed to load hub connections: {e}", exc_info=True)
     
     def refresh(self):
         """Refresh from database."""
