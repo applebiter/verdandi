@@ -400,6 +400,9 @@ class FabricCanvas(QGraphicsView):
         # Format: {(client_node_id, hub_node_id): {send_channels, receive_channels}}
         self.hub_client_connections: Dict[tuple, Dict] = {}
         
+        # Load saved connections
+        self._load_hub_connections()
+        
         # Auto-refresh
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh)
@@ -616,7 +619,7 @@ class FabricCanvas(QGraphicsView):
                     logger.info(f"Added client {fabric_node.node.hostname} to hub {link_node.link_data.link_id[:8]}: {send_channels}→{receive_channels}ch")
                     
                 elif hub_node and client_node:
-                    # Direct hub-to-client connection - store in memory
+                    # Direct hub-to-client connection - store in memory and start JackTrip client
                     hub_node_id = str(hub_node.node.node_id)
                     client_node_id = str(client_node.node.node_id)
                     
@@ -630,7 +633,41 @@ class FabricCanvas(QGraphicsView):
                     
                     logger.info(f"Stored direct hub connection: {client_node.node.hostname} ({send_channels}→{receive_channels}ch) -> hub {hub_node.node.hostname}")
                     
-                    # TODO: Call gRPC to actually start the JackTrip client connection
+                    # Save connections to file for persistence
+                    self._save_hub_connections()
+                    
+                    # Call gRPC to start JackTrip client on the client node
+                    try:
+                        from verdandi_codex.models.identity import Node
+                        from verdandi_hall.grpc_client import VerdandiGrpcClient
+                        
+                        with self.database.get_session() as session:
+                            client_node_db = session.query(Node).filter_by(node_id=client_node_id).first()
+                            hub_node_db = session.query(Node).filter_by(node_id=hub_node_id).first()
+                            
+                            if client_node_db and hub_node_db:
+                                session.expunge_all()\n                                
+                                # Start JackTrip client on client node, connecting to hub node
+                                with VerdandiGrpcClient(client_node_db) as client_grpc:
+                                    parent = self.parentWidget()
+                                    sample_rate = getattr(parent, 'sample_rate', 48000)
+                                    buffer_size = getattr(parent, 'buffer_size', 128)
+                                    
+                                    response = client_grpc.start_jacktrip_client(
+                                        hub_address=hub_node_db.ip_last_seen,
+                                        hub_port=4464,
+                                        send_channels=send_channels,
+                                        receive_channels=receive_channels,
+                                        sample_rate=sample_rate,
+                                        buffer_size=buffer_size
+                                    )
+                                    
+                                    if response.success:
+                                        logger.info(f"JackTrip client started on {client_node.node.hostname}")
+                                    else:
+                                        logger.error(f"Failed to start JackTrip client: {response.message}")
+                    except Exception as e:
+                        logger.error(f"Failed to start JackTrip client via gRPC: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Failed to update link connections: {e}", exc_info=True)
     
@@ -655,12 +692,35 @@ class FabricCanvas(QGraphicsView):
             key1 = (str(client_node.node.node_id), str(hub_node.node.node_id))
             key2 = (str(hub_node.node.node_id), str(client_node.node.node_id))
             
+            removed_key = None
             if key1 in self.hub_client_connections:
                 del self.hub_client_connections[key1]
+                removed_key = key1
                 logger.info(f"Removed direct hub connection: {client_node.node.hostname} -> {hub_node.node.hostname}")
             elif key2 in self.hub_client_connections:
                 del self.hub_client_connections[key2]
+                removed_key = key2
                 logger.info(f"Removed direct hub connection: {hub_node.node.hostname} -> {client_node.node.hostname}")
+            
+            # Stop JackTrip client on the client node
+            if removed_key:
+                try:
+                    from verdandi_codex.models.identity import Node
+                    from verdandi_hall.grpc_client import VerdandiGrpcClient
+                    
+                    client_id = removed_key[0]
+                    with self.database.get_session() as session:
+                        client_node_db = session.query(Node).filter_by(node_id=client_id).first()
+                        if client_node_db:
+                            session.expunge(client_node_db)
+                            with VerdandiGrpcClient(client_node_db) as client_grpc:
+                                client_grpc.stop_jacktrip_client()
+                                logger.info(f"Stopped JackTrip client on {client_node_db.hostname}")
+                except Exception as e:
+                    logger.error(f"Failed to stop JackTrip client: {e}\", exc_info=True)
+                
+                # Save updated connections
+                self._save_hub_connections()
         
         # Remove wire from scene
         self.scene.removeItem(wire)
@@ -693,6 +753,54 @@ class FabricCanvas(QGraphicsView):
                     session.commit()
             except Exception as e:
                 logger.error(f"Failed to update link after wire deletion: {e}", exc_info=True)
+    
+    def _save_hub_connections(self):
+        \"\"\"Save hub-client connections to file for persistence.\"\"\"
+        from pathlib import Path
+        import json
+        
+        config_dir = Path.home() / \".config\" / \"verdandi\" / \"fabric\"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        config_file = config_dir / \"hub_connections.json\"
+        
+        try:
+            # Convert tuple keys to strings for JSON serialization
+            serializable = {}
+            for (client_id, hub_id), conn_info in self.hub_client_connections.items():
+                key = f\"{client_id}:{hub_id}\"
+                serializable[key] = conn_info
+            
+            with open(config_file, 'w') as f:
+                json.dump(serializable, f, indent=2)
+            
+            logger.info(f\"Saved {len(serializable)} hub connections to {config_file}\")
+        except Exception as e:
+            logger.error(f\"Failed to save hub connections: {e}\", exc_info=True)
+    
+    def _load_hub_connections(self):
+        \"\"\"Load hub-client connections from file.\"\"\"
+        from pathlib import Path
+        import json
+        
+        config_file = Path.home() / \".config\" / \"verdandi\" / \"fabric\" / \"hub_connections.json\"
+        
+        if not config_file.exists():
+            return
+        
+        try:
+            with open(config_file, 'r') as f:
+                serializable = json.load(f)
+            
+            # Convert string keys back to tuples
+            for key, conn_info in serializable.items():
+                if ':' in key:
+                    client_id, hub_id = key.split(':', 1)
+                    tuple_key = (client_id, hub_id)
+                    self.hub_client_connections[tuple_key] = conn_info
+            
+            logger.info(f\"Loaded {len(self.hub_client_connections)} hub connections from {config_file}\")
+        except Exception as e:
+            logger.error(f\"Failed to load hub connections: {e}\", exc_info=True)
     
     def refresh(self):
         """Refresh from database."""
@@ -1278,11 +1386,8 @@ class FabricCanvasWidget(QWidget):
         
         self.hub_node_id = self.hub_node_combo.itemData(selected_idx)
         
-        # TODO: Call gRPC service to start JackTrip hub on selected node
-        # For now, just update UI state
         logger.info(f"Starting JackTrip hub on node {self.hub_node_id}")
         
-        # Simulated hub start (will be replaced with actual gRPC call)
         try:
             # Get node info
             with self.database.get_session() as session:
@@ -1293,6 +1398,22 @@ class FabricCanvasWidget(QWidget):
                     return
                 
                 hostname = node.hostname
+                session.expunge(node)  # Detach for use outside session
+            
+            # Call gRPC to start hub
+            from verdandi_hall.grpc_client import VerdandiGrpcClient
+            
+            with VerdandiGrpcClient(node) as client:
+                response = client.start_jacktrip_hub(
+                    send_channels=2,
+                    receive_channels=2,
+                    sample_rate=self.sample_rate,
+                    buffer_size=self.buffer_size
+                )
+                
+                if not response.success:
+                    QMessageBox.critical(self, "Error", f"Failed to start hub: {response.message}")
+                    return
             
             # Update UI
             self.hub_running = True
@@ -1317,8 +1438,22 @@ class FabricCanvasWidget(QWidget):
         if not self.hub_running:
             return
         
-        # TODO: Call gRPC service to stop JackTrip hub
         logger.info(f"Stopping JackTrip hub on node {self.hub_node_id}")
+        
+        try:
+            # Get node info
+            with self.database.get_session() as session:
+                from verdandi_codex.models.identity import Node
+                node = session.query(Node).filter_by(node_id=self.hub_node_id).first()
+                if node:
+                    session.expunge(node)
+                    
+                    # Call gRPC to stop hub
+                    from verdandi_hall.grpc_client import VerdandiGrpcClient
+                    with VerdandiGrpcClient(node) as client:
+                        client.stop_jacktrip_hub()
+        except Exception as e:
+            logger.error(f"Failed to stop hub: {e}", exc_info=True)
         
         # Update UI
         self.hub_running = False

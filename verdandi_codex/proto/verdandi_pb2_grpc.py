@@ -667,3 +667,411 @@ class FabricGraphService(object):
             timeout,
             metadata,
             _registered_method=True)
+
+
+class JackServiceStub(object):
+    """JackService - Query and control JACK audio graph
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.GetJackGraph = channel.unary_unary(
+                '/verdandi.JackService/GetJackGraph',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackGraphResponse.FromString,
+                _registered_method=True)
+        self.ConnectPorts = channel.unary_unary(
+                '/verdandi.JackService/ConnectPorts',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.ConnectPortsRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.PortOperationResponse.FromString,
+                _registered_method=True)
+        self.DisconnectPorts = channel.unary_unary(
+                '/verdandi.JackService/DisconnectPorts',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.DisconnectPortsRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.PortOperationResponse.FromString,
+                _registered_method=True)
+
+
+class JackServiceServicer(object):
+    """JackService - Query and control JACK audio graph
+    """
+
+    def GetJackGraph(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ConnectPorts(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def DisconnectPorts(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_JackServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'GetJackGraph': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetJackGraph,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackGraphResponse.SerializeToString,
+            ),
+            'ConnectPorts': grpc.unary_unary_rpc_method_handler(
+                    servicer.ConnectPorts,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.ConnectPortsRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.PortOperationResponse.SerializeToString,
+            ),
+            'DisconnectPorts': grpc.unary_unary_rpc_method_handler(
+                    servicer.DisconnectPorts,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.DisconnectPortsRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.PortOperationResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'verdandi.JackService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('verdandi.JackService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class JackService(object):
+    """JackService - Query and control JACK audio graph
+    """
+
+    @staticmethod
+    def GetJackGraph(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackService/GetJackGraph',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.JackGraphResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ConnectPorts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackService/ConnectPorts',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.ConnectPortsRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.PortOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def DisconnectPorts(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackService/DisconnectPorts',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.DisconnectPortsRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.PortOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+
+class JackTripServiceStub(object):
+    """JackTripService - Control JackTrip connections
+    """
+
+    def __init__(self, channel):
+        """Constructor.
+
+        Args:
+            channel: A grpc.Channel.
+        """
+        self.StartHub = channel.unary_unary(
+                '/verdandi.JackTripService/StartHub',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StartHubRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+                _registered_method=True)
+        self.StopHub = channel.unary_unary(
+                '/verdandi.JackTripService/StopHub',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StopHubRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+                _registered_method=True)
+        self.StartClient = channel.unary_unary(
+                '/verdandi.JackTripService/StartClient',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StartClientRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+                _registered_method=True)
+        self.StopClient = channel.unary_unary(
+                '/verdandi.JackTripService/StopClient',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StopClientRequest.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+                _registered_method=True)
+        self.GetJackTripStatus = channel.unary_unary(
+                '/verdandi.JackTripService/GetJackTripStatus',
+                request_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.SerializeToString,
+                response_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripStatusResponse.FromString,
+                _registered_method=True)
+
+
+class JackTripServiceServicer(object):
+    """JackTripService - Control JackTrip connections
+    """
+
+    def StartHub(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StopHub(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StartClient(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def StopClient(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def GetJackTripStatus(self, request, context):
+        """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+
+def add_JackTripServiceServicer_to_server(servicer, server):
+    rpc_method_handlers = {
+            'StartHub': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartHub,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StartHubRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.SerializeToString,
+            ),
+            'StopHub': grpc.unary_unary_rpc_method_handler(
+                    servicer.StopHub,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StopHubRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.SerializeToString,
+            ),
+            'StartClient': grpc.unary_unary_rpc_method_handler(
+                    servicer.StartClient,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StartClientRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.SerializeToString,
+            ),
+            'StopClient': grpc.unary_unary_rpc_method_handler(
+                    servicer.StopClient,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.StopClientRequest.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.SerializeToString,
+            ),
+            'GetJackTripStatus': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetJackTripStatus,
+                    request_deserializer=verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.FromString,
+                    response_serializer=verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripStatusResponse.SerializeToString,
+            ),
+    }
+    generic_handler = grpc.method_handlers_generic_handler(
+            'verdandi.JackTripService', rpc_method_handlers)
+    server.add_generic_rpc_handlers((generic_handler,))
+    server.add_registered_method_handlers('verdandi.JackTripService', rpc_method_handlers)
+
+
+ # This class is part of an EXPERIMENTAL API.
+class JackTripService(object):
+    """JackTripService - Control JackTrip connections
+    """
+
+    @staticmethod
+    def StartHub(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackTripService/StartHub',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.StartHubRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StopHub(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackTripService/StopHub',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.StopHubRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StartClient(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackTripService/StartClient',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.StartClientRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def StopClient(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackTripService/StopClient',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.StopClientRequest.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripOperationResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetJackTripStatus(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/verdandi.JackTripService/GetJackTripStatus',
+            verdandi__codex_dot_proto_dot_verdandi__pb2.Empty.SerializeToString,
+            verdandi__codex_dot_proto_dot_verdandi__pb2.JackTripStatusResponse.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)

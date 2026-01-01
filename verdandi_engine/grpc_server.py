@@ -16,6 +16,8 @@ from .services import (
     DiscoveryAndRegistryServicer,
     FabricGraphServicer,
 )
+from .jack_service import JackServicer
+from .jacktrip_service import JackTripServicer
 from .fabric_manager import FabricGraphManager
 from .node_registry import NodeRegistry
 
@@ -72,6 +74,12 @@ class GrpcServer:
                 self.jack_connection_manager
             ), 
             self.server
+        )
+        verdandi_pb2_grpc.add_JackServiceServicer_to_server(
+            JackServicer(self.jack_connection_manager), self.server
+        )
+        verdandi_pb2_grpc.add_JackTripServiceServicer_to_server(
+            JackTripServicer(), self.server
         )
         
         # Configure TLS if enabled

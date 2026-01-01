@@ -192,3 +192,96 @@ message LinkStatusResponse {
 message ListLinksResponse {
     repeated FabricLinkInfo links = 1;
 }
+
+// JackService - Query and control JACK audio graph
+service JackService {
+    rpc GetJackGraph(Empty) returns (JackGraphResponse);
+    rpc ConnectPorts(ConnectPortsRequest) returns (PortOperationResponse);
+    rpc DisconnectPorts(DisconnectPortsRequest) returns (PortOperationResponse);
+}
+
+message JackGraphResponse {
+    repeated JackClient clients = 1;
+    repeated JackConnection connections = 2;
+    int32 sample_rate = 3;
+    int32 buffer_size = 4;
+}
+
+message JackClient {
+    string name = 1;
+    repeated JackPort input_ports = 2;
+    repeated JackPort output_ports = 3;
+}
+
+message JackPort {
+    string name = 1;
+    string full_name = 2;
+    bool is_midi = 3;
+}
+
+message JackConnection {
+    string output_port = 1;
+    string input_port = 2;
+}
+
+message ConnectPortsRequest {
+    string output_port = 1;
+    string input_port = 2;
+}
+
+message DisconnectPortsRequest {
+    string output_port = 1;
+    string input_port = 2;
+}
+
+message PortOperationResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+// JackTripService - Control JackTrip connections
+service JackTripService {
+    rpc StartHub(StartHubRequest) returns (JackTripOperationResponse);
+    rpc StopHub(StopHubRequest) returns (JackTripOperationResponse);
+    rpc StartClient(StartClientRequest) returns (JackTripOperationResponse);
+    rpc StopClient(StopClientRequest) returns (JackTripOperationResponse);
+    rpc GetJackTripStatus(Empty) returns (JackTripStatusResponse);
+}
+
+message StartHubRequest {
+    int32 send_channels = 1;
+    int32 receive_channels = 2;
+    int32 sample_rate = 3;
+    int32 buffer_size = 4;
+    int32 port = 5;  // Default 4464
+}
+
+message StopHubRequest {
+    // Empty for now
+}
+
+message StartClientRequest {
+    string hub_address = 1;
+    int32 hub_port = 2;
+    int32 send_channels = 3;
+    int32 receive_channels = 4;
+    int32 sample_rate = 5;
+    int32 buffer_size = 6;
+}
+
+message StopClientRequest {
+    // Empty for now
+}
+
+message JackTripOperationResponse {
+    bool success = 1;
+    string message = 2;
+}
+
+message JackTripStatusResponse {
+    bool hub_running = 1;
+    bool client_running = 2;
+    string hub_address = 3;
+    int32 hub_port = 4;
+    repeated string connected_clients = 5;
+}

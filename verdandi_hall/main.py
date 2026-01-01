@@ -311,34 +311,47 @@ class VerdandiHall(QMainWindow):
                 self.remote_jack_canvas.deleteLater()
                 self.remote_jack_canvas = None
             
-            # Create placeholder for remote JACK graph
-            # TODO: Implement RemoteJackCanvas that queries via gRPC
+            # Query remote JACK graph via gRPC and create canvas
             from PySide6.QtWidgets import QLabel
             from PySide6.QtCore import Qt
+            from verdandi_hall.grpc_client import VerdandiGrpcClient
             
-            placeholder = QLabel(
-                f"<h3>Remote JACK Graph: {node.hostname}</h3>\n\n"
-                f"<p><i>Remote JACK graph visualization requires gRPC implementation.</i></p>\n"
-                f"<p>This will query JACK ports and connections from <b>{node.hostname}</b> "
-                f"via gRPC at <code>{node.ip_last_seen}:{node.daemon_port}</code></p>\n\n"
-                f"<p>Features to implement:</p>"
-                f"<ul>"
-                f"<li>Query remote node's JACK ports</li>"
-                f"<li>Display connections</li>"
-                f"<li>Allow remote port connections</li>"
-                f"<li>Save per-node layout positions</li>"
-                f"</ul>"
-            )
-            placeholder.setTextFormat(Qt.RichText)
-            placeholder.setAlignment(Qt.AlignCenter)
-            placeholder.setStyleSheet("QLabel { padding: 40px; color: #888; }")
-            placeholder.setWordWrap(True)
-            
-            self.remote_jack_canvas = placeholder
-            self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
-            self.current_remote_node_id = node_id
-            
-            self.status_bar.showMessage(f"Loaded remote JACK graph for {node.hostname}", 3000)
+            try:
+                # Query remote JACK graph
+                with VerdandiGrpcClient(node) as client:
+                    jack_graph = client.get_jack_graph()
+                
+                # Create canvas with remote data
+                self.remote_jack_canvas = JackCanvas(jack_manager=None, parent=self, node_id=node_id)
+                
+                # TODO: Populate canvas with remote data from jack_graph
+                # For now, just show it works
+                
+                self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
+                self.current_remote_node_id = node_id
+                
+                self.status_bar.showMessage(f"Connected to {node.hostname} - {len(jack_graph.clients)} JACK clients found", 5000)
+                
+            except Exception as e:
+                logger.error(f"Failed to query remote JACK graph: {e}", exc_info=True)
+                
+                # Show error placeholder
+                placeholder = QLabel(
+                    f"<h3>Remote JACK Graph: {node.hostname}</h3>\n\n"
+                    f"<p style='color: #f88;'><b>Error:</b> Failed to connect to remote node</p>\n"
+                    f"<p><i>{str(e)}</i></p>\n\n"
+                    f"<p>Make sure the Verdandi daemon is running on {node.hostname}</p>"
+                )
+                placeholder.setTextFormat(Qt.RichText)
+                placeholder.setAlignment(Qt.AlignCenter)
+                placeholder.setStyleSheet("QLabel { padding: 40px; }")
+                placeholder.setWordWrap(True)
+                
+                self.remote_jack_canvas = placeholder
+                self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
+                self.current_remote_node_id = node_id
+                self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
+                self.current_remote_node_id = node_id
             
         except Exception as e:
             logger.error("load_remote_jack_failed", error=str(e), node_id=node_id)
