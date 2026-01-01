@@ -1154,6 +1154,7 @@ class JackCanvasWithControls(QWidget):
             self.hub_running = True
             self.start_hub_btn.setEnabled(False)
             self.stop_hub_btn.setEnabled(True)
+            self.connect_client_btn.setEnabled(False)  # Can't connect to yourself as hub
             self.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
         
         if has_client:
@@ -1415,6 +1416,12 @@ class JackCanvasWithControls(QWidget):
                         sample_rate=48000,
                         buffer_size=256
                     )
+                    
+                    # Check if the response indicates success
+                    if not response.success:
+                        raise Exception(f"JackTrip client failed to start: {response.message}")
+                    
+                    logger.info(f"JackTrip client started on {self.remote_node.hostname}: {response.message}")
                 location = f"on {self.remote_node.hostname}"
             else:
                 # Start client locally via subprocess
@@ -1465,12 +1472,26 @@ class JackCanvasWithControls(QWidget):
             self.disconnect_client_btn.setEnabled(True)
             self.status_label.setText(f"Status: <b style='color: #6f6'>Connected</b> to {host}:{port}")
             
-            QMessageBox.information(self, "Client Connected", 
-                                  f"JackTrip client {location} connected to {host}:{port}.")
+            # Show response message if available (for remote connections)
+            if self.is_remote and 'response' in locals():
+                msg_detail = f"\n\nDaemon response: {response.message}" if hasattr(response, 'message') else ""
+                QMessageBox.information(self, "Client Connected", 
+                                      f"JackTrip client {location} connected to {host}:{port}.{msg_detail}")
+            else:
+                QMessageBox.information(self, "Client Connected", 
+                                      f"JackTrip client {location} connected to {host}:{port}.")
             
             # Refresh canvas after a moment to show new JACK client
             from PySide6.QtCore import QTimer
-            QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            if self.is_remote:
+                # For remote canvas, trigger remote refresh
+                QTimer.singleShot(2000, lambda: self.canvas.remote_refresh_requested.emit())
+                # Also try to refresh the hub's canvas if we can access it
+                if self.parent() and hasattr(self.parent(), 'jack_canvas_widget'):
+                    QTimer.singleShot(2000, self.parent().jack_canvas_widget.canvas.refresh_from_jack)
+            else:
+                # For local canvas, just refresh locally
+                QTimer.singleShot(2000, self.canvas.refresh_from_jack)
             
         except Exception as e:
             logger.error(f"Failed to connect client: {e}", exc_info=True)
