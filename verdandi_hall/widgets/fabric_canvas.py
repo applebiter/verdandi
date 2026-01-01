@@ -63,10 +63,11 @@ class LinkNodeData:
 class ConnectionPort(QGraphicsEllipseItem):
     """Visual connection port on a node."""
     
-    def __init__(self, parent_item, is_output: bool):
+    def __init__(self, parent_item, is_output: bool, is_hub: bool = False):
         super().__init__(-8, -8, 16, 16)
         self.parent_item = parent_item
         self.is_output = is_output
+        self.is_hub = is_hub
         
         self.setBrush(QBrush(QColor(200, 200, 200)))
         self.setPen(QPen(QColor(100, 100, 100), 2))
@@ -75,9 +76,12 @@ class ConnectionPort(QGraphicsEllipseItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CrossCursor)
         
-        # Position: single socket at bottom of node
+        # Position: hub socket on bottom, client sockets on top
         radius = 45 if isinstance(parent_item, FabricNodeItem) else 35
-        self.setPos(0, radius)  # Bottom center
+        if is_hub:
+            self.setPos(0, radius)  # Bottom center for hub
+        else:
+            self.setPos(0, -radius)  # Top center for clients
     
     def hoverEnterEvent(self, event):
         self.setBrush(QBrush(QColor(255, 200, 100)))
@@ -312,15 +316,18 @@ class LinkNodeItem(QGraphicsPolygonItem):
 class FabricNodeItem(QGraphicsEllipseItem):
     """Circular node representing a physical machine."""
     
-    def __init__(self, node: NodeGraphics, parent_canvas=None):
+    def __init__(self, node: NodeGraphics, parent_canvas=None, is_hub: bool = False):
         # Larger circle
         radius = 45
         super().__init__(-radius, -radius, radius*2, radius*2)
         self.node = node
         self.parent_canvas = parent_canvas
+        self.is_hub = is_hub
         
-        # Color based on local/remote
-        if node.is_local:
+        # Color based on hub status first, then local/remote
+        if is_hub:
+            color = QColor(180, 100, 100, 200)  # Red-tinted for hub
+        elif node.is_local:
             color = QColor(100, 180, 100, 200)
         else:
             color = QColor(80, 120, 180, 200)
@@ -333,14 +340,15 @@ class FabricNodeItem(QGraphicsEllipseItem):
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges)
         
-        tooltip = (f"{node.hostname}\n"
+        hub_text = " (HUB)" if is_hub else ""
+        tooltip = (f"{node.hostname}{hub_text}\n"
                   f"{node.ip_address}\n"
                   f"ID: {node.node_id[:8]}\n\n"
                   f"Double-click: Open JACK graph")
         self.setToolTip(tooltip)
         
-        # Add single connection socket at bottom
-        self.socket = ConnectionPort(self, is_output=True)
+        # Add connection socket: bottom for hub, top for clients
+        self.socket = ConnectionPort(self, is_output=True, is_hub=is_hub)
     
     def itemChange(self, change, value):
         """Update wire positions when node moves."""
@@ -806,6 +814,124 @@ class FabricCanvas(QGraphicsView):
         except Exception as e:
             logger.error(f"Failed to load hub connections: {e}", exc_info=True)
     
+    def _save_preset(self, name: str):
+        """Save fabric node positions and hub connections as a preset."""
+        from pathlib import Path
+        import json
+        
+        preset_dir = Path.home() / ".config" / "verdandi" / "fabric" / "presets"
+        preset_dir.mkdir(parents=True, exist_ok=True)
+        preset_file = preset_dir / f"{name}.json"
+        
+        try:
+            # Collect node positions
+            positions = {}
+            for node_id, item in self.fabric_nodes.items():
+                pos = item.pos()
+                positions[node_id] = {"x": pos.x(), "y": pos.y()}
+            
+            # Collect hub connections
+            connections = []
+            for (client_id, hub_id), conn_info in self.hub_client_connections.items():
+                connections.append({
+                    "client_id": client_id,
+                    "hub_id": hub_id,
+                    "send_channels": conn_info["send_channels"],
+                    "receive_channels": conn_info["receive_channels"]
+                })
+            
+            preset_data = {
+                "positions": positions,
+                "connections": connections,
+                "hub_node_id": self.hub_node_id
+            }
+            
+            with open(preset_file, 'w') as f:
+                json.dump(preset_data, f, indent=2)
+            
+            logger.info(f"Saved fabric preset: {name}")
+        except Exception as e:
+            logger.error(f"Failed to save preset: {e}", exc_info=True)
+    
+    def _load_preset(self, name: str):
+        """Load fabric node positions and hub connections from a preset."""
+        from pathlib import Path
+        import json
+        
+        preset_file = Path.home() / ".config" / "verdandi" / "fabric" / "presets" / f"{name}.json"
+        
+        if not preset_file.exists():
+            logger.warning(f"Preset file not found: {preset_file}")
+            return
+        
+        try:
+            with open(preset_file, 'r') as f:
+                preset_data = json.load(f)
+            
+            # Restore node positions
+            positions = preset_data.get("positions", {})
+            for node_id, pos_data in positions.items():
+                if node_id in self.fabric_nodes:
+                    item = self.fabric_nodes[node_id]
+                    item.setPos(pos_data["x"], pos_data["y"])
+            
+            # Restore hub node selection
+            if "hub_node_id" in preset_data and preset_data["hub_node_id"]:
+                self.hub_node_id = preset_data["hub_node_id"]
+                # Update parent widget's combo box if accessible
+                if hasattr(self, 'parent') and hasattr(self.parent(), '_populate_hub_nodes'):
+                    self.parent()._populate_hub_nodes()
+            
+            # Restore connections (recreate wires)
+            # Clear existing wires first
+            for wire in self.wires[:]:
+                self.scene.removeItem(wire)
+            self.wires.clear()
+            self.hub_client_connections.clear()
+            
+            # Recreate connections from preset
+            connections = preset_data.get("connections", [])
+            for conn_data in connections:
+                client_id = conn_data["client_id"]
+                hub_id = conn_data["hub_id"]
+                
+                if client_id in self.fabric_nodes and hub_id in self.fabric_nodes:
+                    client_node = self.fabric_nodes[client_id]
+                    hub_node = self.fabric_nodes[hub_id]
+                    
+                    # Create wire
+                    wire = ConnectionWire(
+                        client_node, hub_node, parent_canvas=self,
+                        from_port=client_node.socket,
+                        to_port=hub_node.socket
+                    )
+                    self.scene.addItem(wire)
+                    self.wires.append(wire)
+                    
+                    # Store connection info
+                    key = (client_id, hub_id)
+                    self.hub_client_connections[key] = {
+                        "send_channels": conn_data.get("send_channels", 2),
+                        "receive_channels": conn_data.get("receive_channels", 2)
+                    }
+            
+            # Save the restored connections
+            self._save_hub_connections()
+            
+            logger.info(f"Loaded fabric preset: {name}")
+        except Exception as e:
+            logger.error(f"Failed to load preset: {e}", exc_info=True)
+    
+    def _list_presets(self) -> list:
+        """List available presets."""
+        from pathlib import Path
+        
+        preset_dir = Path.home() / ".config" / "verdandi" / "fabric" / "presets"
+        if not preset_dir.exists():
+            return []
+        
+        return [p.stem for p in preset_dir.glob("*.json")]
+    
     def refresh(self):
         """Refresh from database."""
         try:
@@ -844,7 +970,9 @@ class FabricCanvas(QGraphicsView):
                         is_local=(str(node.node_id) == str(self.config.node.node_id))
                     )
                     
-                    item = FabricNodeItem(node_graphics, parent_canvas=self)
+                    # Check if this node is the hub
+                    is_hub = (self.hub_node_id and str(node.node_id) == self.hub_node_id)
+                    item = FabricNodeItem(node_graphics, parent_canvas=self, is_hub=is_hub)
                     self.scene.addItem(item)
                     self.fabric_nodes[node_id] = item
             
@@ -1291,6 +1419,14 @@ class FabricCanvasWidget(QWidget):
         refresh_btn.clicked.connect(self._on_refresh)
         controls.addWidget(refresh_btn)
         
+        save_preset_btn = QPushButton("💾 Save Preset")
+        save_preset_btn.clicked.connect(self._on_save_preset)
+        controls.addWidget(save_preset_btn)
+        
+        load_preset_btn = QPushButton("📂 Load Preset")
+        load_preset_btn.clicked.connect(self._on_load_preset)
+        controls.addWidget(load_preset_btn)
+        
         add_link_btn = QPushButton("➕ Add Link Node")
         add_link_btn.clicked.connect(self._on_add_link)
         controls.addWidget(add_link_btn)
@@ -1475,6 +1611,31 @@ class FabricCanvasWidget(QWidget):
         if self.hub_running and len(self.canvas.wires) == 0:
             logger.info("Auto-stopping hub due to inactivity")
             self._on_stop_hub()
+    
+    def _on_save_preset(self):
+        """Save current fabric layout and connections as a preset."""
+        from PySide6.QtWidgets import QInputDialog
+        
+        name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+        if not ok or not name:
+            return
+        
+        self.canvas._save_preset(name)
+        QMessageBox.information(self, "Preset Saved", f"Fabric preset '{name}' saved successfully.")
+    
+    def _on_load_preset(self):
+        """Load a saved fabric preset."""
+        from PySide6.QtWidgets import QInputDialog
+        
+        presets = self.canvas._list_presets()
+        if not presets:
+            QMessageBox.information(self, "No Presets", "No saved presets found.")
+            return
+        
+        name, ok = QInputDialog.getItem(self, "Load Preset", "Select preset:", presets, 0, False)
+        if ok and name:
+            self.canvas._load_preset(name)
+            QMessageBox.information(self, "Preset Loaded", f"Fabric preset '{name}' loaded successfully.")
     
     def closeEvent(self, event):
         """Handle widget close - stop hub if running."""
