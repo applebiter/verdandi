@@ -4,6 +4,7 @@ gRPC service implementation for JACK audio graph operations.
 
 import logging
 import grpc
+import jack
 from typing import Optional
 
 from verdandi_codex.proto import verdandi_pb2, verdandi_pb2_grpc
@@ -17,37 +18,39 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
     def __init__(self, jack_manager=None):
         """
         Initialize with optional jack_manager.
-        If None, will attempt to create one when needed.
+        The jack_manager parameter is ignored - we create our own JACK client.
         """
-        self.jack_manager = jack_manager
+        self.jack_client = None
     
-    def _ensure_jack_manager(self):
-        """Lazy load jack manager if not provided."""
-        if self.jack_manager is None:
+    def _ensure_jack_client(self):
+        """Lazy load JACK client if not created."""
+        if self.jack_client is None:
             try:
-                from verdandi_hall.widgets.jack_client_manager import JackClientManager
-                self.jack_manager = JackClientManager("verdandi_daemon_jack")
+                self.jack_client = jack.Client("verdandi_grpc_jack_query")
+                self.jack_client.activate()
             except Exception as e:
-                logger.error(f"Failed to initialize JACK manager: {e}")
+                logger.error(f"Failed to initialize JACK client: {e}")
                 return None
-        return self.jack_manager
+        return self.jack_client
     
     def GetJackGraph(self, request, context):
         """Return current JACK graph state."""
-        jack_mgr = self._ensure_jack_manager()
-        if not jack_mgr:
+        client = self._ensure_jack_client()
+        if not client:
             context.set_code(grpc.StatusCode.UNAVAILABLE)
-            context.set_details("JACK manager not available")
+            context.set_details("JACK client not available")
             return verdandi_pb2.JackGraphResponse()
         
         try:
             # Get all ports
-            all_ports = jack_mgr.get_ports()
-            output_ports = set(jack_mgr.get_ports(is_output=True))
+            all_ports = client.get_ports()
+            output_ports = set(p.name for p in client.get_ports() if p.is_output)
             
             # Group ports by client name
             clients_dict = {}
-            for port_name in all_ports:
+            for port_obj in all_ports:
+                port_name = port_obj.name
+                
                 # Port format is "client_name:port_name"
                 if ':' not in port_name:
                     continue
@@ -62,12 +65,7 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
                 
                 # Check if port is output and if it's MIDI
                 is_output = port_name in output_ports
-                is_midi = False
-                try:
-                    port_obj = jack_mgr.client.get_port_by_name(port_name)
-                    is_midi = port_obj.is_midi
-                except Exception as e:
-                    logger.warning(f"Error checking port type for {port_name}: {e}")
+                is_midi = port_obj.is_midi
                 
                 port_info = verdandi_pb2.JackPort(
                     name=port_short,
@@ -91,17 +89,19 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
             
             # Get all connections
             connections = []
-            all_connections = jack_mgr.get_all_connections()
-            for output_port, input_ports in all_connections.items():
-                for input_port in input_ports:
-                    connections.append(verdandi_pb2.JackConnection(
-                        output_port=output_port,
-                        input_port=input_port
-                    ))
+            for port_obj in all_ports:
+                if port_obj.is_output:
+                    # Get connections from this output port
+                    connected_ports = client.get_all_connections(port_obj)
+                    for connected_port in connected_ports:
+                        connections.append(verdandi_pb2.JackConnection(
+                            output_port=port_obj.name,
+                            input_port=connected_port.name
+                        ))
             
             # Get JACK settings
-            sample_rate = jack_mgr.get_sample_rate()
-            buffer_size = jack_mgr.get_buffer_size()
+            sample_rate = client.samplerate
+            buffer_size = client.blocksize
             
             return verdandi_pb2.JackGraphResponse(
                 clients=clients,
@@ -118,15 +118,15 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
     
     def ConnectPorts(self, request, context):
         """Connect two JACK ports."""
-        jack_mgr = self._ensure_jack_manager()
-        if not jack_mgr:
+        client = self._ensure_jack_client()
+        if not client:
             return verdandi_pb2.PortOperationResponse(
                 success=False,
-                message="JACK manager not available"
+                message="JACK client not available"
             )
         
         try:
-            jack_mgr.connect_ports(request.output_port, request.input_port)
+            client.connect(request.output_port, request.input_port)
             return verdandi_pb2.PortOperationResponse(
                 success=True,
                 message=f"Connected {request.output_port} -> {request.input_port}"
@@ -140,15 +140,15 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
     
     def DisconnectPorts(self, request, context):
         """Disconnect two JACK ports."""
-        jack_mgr = self._ensure_jack_manager()
-        if not jack_mgr:
+        client = self._ensure_jack_client()
+        if not client:
             return verdandi_pb2.PortOperationResponse(
                 success=False,
-                message="JACK manager not available"
+                message="JACK client not available"
             )
         
         try:
-            jack_mgr.disconnect_ports(request.output_port, request.input_port)
+            client.disconnect(request.output_port, request.input_port)
             return verdandi_pb2.PortOperationResponse(
                 success=True,
                 message=f"Disconnected {request.output_port} -> {request.input_port}"
