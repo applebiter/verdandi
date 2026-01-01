@@ -1533,10 +1533,14 @@ class JackCanvasWithControls(QWidget):
         """Restart the Verdandi daemon on the associated host."""
         if self.is_remote:
             hostname = self.remote_node.hostname
-            confirm_msg = f"Restart the Verdandi daemon on {hostname}?\n\nThis will temporarily interrupt all services on that node."
+            confirm_msg = (f"Restart the Verdandi daemon on {hostname}?\n\n"
+                          f"This will temporarily interrupt all services on that node.\n\n"
+                          f"Note: Requires passwordless SSH keys and passwordless sudo.")
         else:
             hostname = "localhost"
-            confirm_msg = "Restart the local Verdandi daemon?\n\nThis will temporarily interrupt all local services and close this GUI."
+            confirm_msg = ("Restart the local Verdandi daemon?\n\n"
+                          "This will temporarily interrupt all local services and close this GUI.\n\n"
+                          "Note: Requires passwordless sudo for systemctl.")
         
         reply = QMessageBox.question(
             self, "Confirm Restart",
@@ -1565,7 +1569,18 @@ class JackCanvasWithControls(QWidget):
                     from PySide6.QtCore import QTimer
                     QTimer.singleShot(3000, self.canvas.remote_refresh_requested.emit)
                 else:
-                    raise Exception(f"SSH command failed: {result.stderr}")
+                    # Check if it's a sudo password issue
+                    if "sudo" in result.stderr.lower() or "password" in result.stderr.lower():
+                        raise Exception(
+                            f"Permission denied. Please configure passwordless sudo:\n\n"
+                            f"On {hostname}, run:\n"
+                            f"sudo visudo\n\n"
+                            f"Add this line:\n"
+                            f"sysadmin ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart verdandi-daemon\n\n"
+                            f"Error: {result.stderr}"
+                        )
+                    else:
+                        raise Exception(f"SSH command failed: {result.stderr}")
             else:
                 # Restart local daemon
                 import subprocess
@@ -1582,13 +1597,23 @@ class JackCanvasWithControls(QWidget):
                     import sys
                     sys.exit(0)
                 else:
-                    raise Exception(f"Restart command failed: {result.stderr}")
+                    # Check if it's a sudo password issue
+                    if "sudo" in result.stderr.lower() or "password" in result.stderr.lower():
+                        raise Exception(
+                            f"Permission denied. Please configure passwordless sudo:\n\n"
+                            f"Run: sudo visudo\n\n"
+                            f"Add this line:\n"
+                            f"sysadmin ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart verdandi-daemon\n\n"
+                            f"Error: {result.stderr}"
+                        )
+                    else:
+                        raise Exception(f"Restart command failed: {result.stderr}")
                     
         except subprocess.TimeoutExpired:
             QMessageBox.warning(self, "Timeout", "Daemon restart command timed out. Check system status manually.")
         except Exception as e:
             logger.error(f"Failed to restart daemon: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Failed to restart daemon: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to restart daemon:\n\n{e}")
     
     def set_jack_manager(self, jack_manager):
         """Set the JACK manager for the canvas."""
