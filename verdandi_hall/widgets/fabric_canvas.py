@@ -399,6 +399,10 @@ class FabricCanvas(QGraphicsView):
         self.link_nodes: Dict[str, LinkNodeItem] = {}
         self.wires: List[ConnectionWire] = []
         
+        # Hub state
+        self.hub_node_id: Optional[str] = None
+        self.hub_running: bool = False
+        
         # Store direct hub-client connections (not in database, just for visualization)
         # Format: {(client_node_id, hub_node_id): {send_channels, receive_channels}}
         self.hub_client_connections: Dict[tuple, Dict] = {}
