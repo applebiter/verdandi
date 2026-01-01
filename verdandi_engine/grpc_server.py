@@ -87,7 +87,7 @@ class GrpcServer:
             server_credentials = self._load_tls_credentials()
             if server_credentials:
                 self.server.add_secure_port(
-                    f"{self.config.daemon.grpc_host}:{self.config.daemon.grpc_port}",
+                    f"ipv4:{self.config.daemon.grpc_host}:{self.config.daemon.grpc_port}",
                     server_credentials,
                 )
                 logger.info(
@@ -98,11 +98,11 @@ class GrpcServer:
             else:
                 logger.warning("tls_credentials_not_found_using_insecure")
                 self.server.add_insecure_port(
-                    f"{self.config.daemon.grpc_host}:{self.config.daemon.grpc_port}"
+                    f"ipv4:{self.config.daemon.grpc_host}:{self.config.daemon.grpc_port}"
                 )
         else:
             self.server.add_insecure_port(
-                f"{self.config.daemon.grpc_host}:{self.config.daemon.grpc_port}"
+                f"ipv4:{self.config.daemon.grpc_host}:{self.config.daemon.grpc_port}"
             )
             logger.info(
                 "grpc_server_starting_insecure",
