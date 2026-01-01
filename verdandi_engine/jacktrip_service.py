@@ -122,6 +122,10 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             receive_channels = request.receive_channels or 2
             buffer_size = request.buffer_size or 128
             
+            # Use local hostname as client name so hub sees our node name
+            import socket
+            hostname = socket.gethostname().split('.')[0]  # Remove domain if present
+            
             # Build JackTrip command for client mode
             cmd = [
                 "jacktrip",
@@ -130,7 +134,8 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 "-n", str(send_channels),
                 "-o", str(receive_channels),
                 "-q", str(buffer_size),
-                "--bufstrategy", "3"
+                "--bufstrategy", "3",
+                "--clientname", hostname
             ]
             
             logger.info(f"Starting JackTrip client: {' '.join(cmd)}")

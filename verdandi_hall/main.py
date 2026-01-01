@@ -291,9 +291,7 @@ class VerdandiHall(QMainWindow):
     
     def _load_remote_jack_graph(self, node_id: str):
         """Load and display a remote node's JACK graph in the Remote JACK tab."""
-        if node_id == self.current_remote_node_id and self.remote_jack_canvas:
-            # Already showing this node
-            return
+        # Always reload to capture any changes (like new JackTrip instances)
         
         try:
             session = self.db.get_session()
@@ -334,6 +332,9 @@ class VerdandiHall(QMainWindow):
                 
                 # Populate canvas with remote data from jack_graph
                 self._populate_remote_jack_canvas(jack_graph)
+                
+                # Detect JackTrip state from JACK graph
+                self._detect_jacktrip_state(jack_graph)
                 
                 # Load last preset for this node (after nodes are populated)
                 self.remote_jack_canvas.canvas._load_last_preset()
@@ -496,6 +497,33 @@ class VerdandiHall(QMainWindow):
         
         logger.info(f"Populated remote canvas with {len(jack_graph.clients)} clients and {len(jack_graph.connections)} connections")
 
+    
+    def _detect_jacktrip_state(self, jack_graph):
+        """Detect if JackTrip is running by checking JACK clients."""
+        if not hasattr(self, 'remote_jack_canvas') or self.remote_jack_canvas is None:
+            return
+        
+        # Look for jacktrip in client names
+        has_jacktrip = False
+        for client in jack_graph.clients:
+            if 'jacktrip' in client.name.lower():
+                has_jacktrip = True
+                break
+        
+        if has_jacktrip:
+            # JackTrip is running - assume hub mode for remote nodes
+            # (client mode would be on the local machine)
+            self.remote_jack_canvas.hub_running = True
+            self.remote_jack_canvas.start_hub_btn.setEnabled(False)
+            self.remote_jack_canvas.stop_hub_btn.setEnabled(True)
+            self.remote_jack_canvas.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
+            logger.info("Detected running JackTrip hub on remote node")
+        else:
+            # No jacktrip found
+            self.remote_jack_canvas.hub_running = False
+            self.remote_jack_canvas.start_hub_btn.setEnabled(True)
+            self.remote_jack_canvas.stop_hub_btn.setEnabled(False)
+            self.remote_jack_canvas.status_label.setText("Status: <i>Idle</i>")
     
     def _load_remote_canvas_state(self, node_id: str):
         """Load saved canvas state (positions, connections) for a remote node."""

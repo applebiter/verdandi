@@ -1293,11 +1293,14 @@ class JackCanvasWithControls(QWidget):
             else:
                 # Start client locally via subprocess
                 import subprocess
+                # Use hub hostname as client name so we see "green" in our local JACK graph
+                client_name = host.split('.')[0]  # Remove domain if present
                 cmd = [
                     "jacktrip", "-C", host,
                     "--bindport", str(port),
                     "--sendchannels", str(send_channels),
-                    "--receivechannels", str(receive_channels)
+                    "--receivechannels", str(receive_channels),
+                    "--clientname", client_name
                 ]
                 try:
                     # Start process and capture output for error checking
