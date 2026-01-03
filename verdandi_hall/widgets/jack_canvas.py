@@ -1548,40 +1548,40 @@ class JackCanvasWithControls(QWidget):
         from PySide6.QtWidgets import QDialog, QFormLayout, QComboBox, QSpinBox, QDialogButtonBox
         from verdandi_codex.database import Database
         from verdandi_codex.models.identity import Node
+        from verdandi_codex.models.jacktrip import JackTripHub
         
-        # Configuration dialog
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Connect to JackTrip Hub")
-        layout = QFormLayout(dialog)
+        # First, check if there's a hub running
+        hub_node_ip = None
+        hub_hostname = None
+        hub_port = 4464
         
-        layout.addRow(QLabel("<b>Client Configuration</b>"))
-        layout.addRow(QLabel("Connect to a running JackTrip hub server."))
-        
-        # Get list of nodes from database
-        host_combo = QComboBox()
         try:
             db = Database()
             session = db.get_session()
-            nodes = session.query(Node).order_by(Node.hostname).all()
+            hub_record = session.query(JackTripHub).first()
+            if hub_record and hub_record.hub_hostname:
+                hub_hostname = hub_record.hub_hostname
+                hub_port = hub_record.hub_port or 4464
+                # Look up the node to get its IP
+                hub_node = session.query(Node).filter_by(hostname=hub_hostname).first()
+                if hub_node:
+                    hub_node_ip = hub_node.ip_last_seen
             session.close()
-            
-            # Populate combo box with nodes
-            for node in nodes:
-                display_text = f"{node.hostname} ({node.ip_last_seen})"
-                host_combo.addItem(display_text, node.ip_last_seen)  # Store IP as user data
-            
-            if host_combo.count() == 0:
-                host_combo.addItem("No nodes registered", None)
         except Exception as e:
-            logger.error(f"Failed to load nodes: {e}")
-            host_combo.addItem("Error loading nodes", None)
+            logger.error(f"Failed to check for running hub: {e}")
         
-        layout.addRow("Hub Host:", host_combo)
+        if not hub_hostname or not hub_node_ip:
+            QMessageBox.warning(self, "No Hub Running", 
+                              "No JackTrip hub is currently running. Start a hub first before connecting clients.")
+            return
         
-        port_spin = QSpinBox()
-        port_spin.setRange(1024, 65535)
-        port_spin.setValue(4464)
-        layout.addRow("Hub Port:", port_spin)
+        # Configuration dialog - simplified, only ask for channels
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Connect to JackTrip Hub on {hub_hostname}")
+        layout = QFormLayout(dialog)
+        
+        layout.addRow(QLabel(f"<b>Connect to Hub: {hub_hostname}:{hub_port}</b>"))
+        layout.addRow(QLabel("Configure your client connection."))
         
         send_channels_spin = QSpinBox()
         send_channels_spin.setRange(1, 8)
@@ -1601,12 +1601,6 @@ class JackCanvasWithControls(QWidget):
         if dialog.exec() != QDialog.Accepted:
             return
         
-        host = host_combo.currentData()  # Get IP from selected node
-        if not host:
-            QMessageBox.warning(self, "Invalid Input", "Please enter a hub host address.")
-            return
-        
-        port = port_spin.value()
         send_channels = send_channels_spin.value()
         receive_channels = receive_channels_spin.value()
         
@@ -1616,8 +1610,8 @@ class JackCanvasWithControls(QWidget):
                 from verdandi_hall.grpc_client import VerdandiGrpcClient
                 with VerdandiGrpcClient(self.remote_node, timeout=30) as client:
                     response = client.start_jacktrip_client(
-                        hub_address=host,
-                        hub_port=port,
+                        hub_address=hub_node_ip,
+                        hub_port=hub_port,
                         send_channels=send_channels,
                         receive_channels=receive_channels,
                         sample_rate=48000,
@@ -1633,25 +1627,14 @@ class JackCanvasWithControls(QWidget):
             else:
                 # Start client locally via subprocess
                 import subprocess
-                import socket
-                
-                # Get local hostname
-                local_hostname = socket.gethostname().split('.')[0]
-                
-                # Get hub hostname from IP
-                try:
-                    hub_hostname = socket.gethostbyaddr(host)[0].split('.')[0]
-                except:
-                    # Fallback: if IP doesn't resolve, try to extract from host string
-                    hub_hostname = host.split('.')[0] if '.' in host else host
                 
                 cmd = [
                     "jacktrip", "-C", hub_hostname  # Use hostname not IP
                 ]
                 
                 # Add peer port if not default
-                if port != 4464:
-                    cmd.extend(["--peerport", str(port)])
+                if hub_port != 4464:
+                    cmd.extend(["--peerport", str(hub_port)])
                 
                 # Only add channel specs if non-default
                 if send_channels != 2:
@@ -1681,20 +1664,20 @@ class JackCanvasWithControls(QWidget):
                     raise Exception(f"Failed to start local client: {e}")
             
             self.client_connected = True
-            self.hub_host = hub_hostname  # Store hostname, not IP
-            self.hub_port = port
+            self.hub_host = hub_hostname  # Store hostname
+            self.hub_port = hub_port
             self.connect_client_btn.setEnabled(False)
             self.disconnect_client_btn.setEnabled(True)
-            self.status_label.setText(f"Status: <b style='color: #6f6'>Connected</b> to {hub_hostname}:{port}")
+            self.status_label.setText(f"Status: <b style='color: #6f6'>Connected</b> to {hub_hostname}:{hub_port}")
             
             # Show response message if available (for remote connections)
             if self.is_remote and 'response' in locals():
                 msg_detail = f"\n\nDaemon response: {response.message}" if hasattr(response, 'message') else ""
                 QMessageBox.information(self, "Client Connected", 
-                                      f"JackTrip client {location} connected to {host}:{port}.{msg_detail}")
+                                      f"JackTrip client {location} connected to {hub_hostname}:{hub_port}.{msg_detail}")
             else:
                 QMessageBox.information(self, "Client Connected", 
-                                      f"JackTrip client {location} connected to {host}:{port}.")
+                                      f"JackTrip client {location} connected to {hub_hostname}:{hub_port}.")
             
             # Refresh canvas after a moment to show new JACK client
             from PySide6.QtCore import QTimer
