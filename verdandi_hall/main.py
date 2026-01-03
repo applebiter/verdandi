@@ -568,12 +568,16 @@ class VerdandiHall(QMainWindow):
                 # Normal client - keep inputs and outputs together
                 node = canvas.model.add_node(client_name, x, y)
                 
+                logger.info(f"Created node '{client_name}' with {len(client.input_ports)} inputs and {len(client.output_ports)} outputs")
+                
                 # Set hostname alias if this is a JackTrip client
                 if hostname_alias:
                     canvas.model.set_alias(client_name, hostname_alias)
+                    logger.info(f"Set alias for '{client_name}' -> '{hostname_alias}'")
                 
                 # Add input ports
                 for jack_port in client.input_ports:
+                    logger.info(f"  Input port: {jack_port.name} (full: {jack_port.full_name})")
                     node.inputs.append(
                         PortModel(
                             name=jack_port.name,
@@ -585,6 +589,7 @@ class VerdandiHall(QMainWindow):
                 
                 # Add output ports
                 for jack_port in client.output_ports:
+                    logger.info(f"  Output port: {jack_port.name} (full: {jack_port.full_name})")
                     node.outputs.append(
                         PortModel(
                             name=jack_port.name,
