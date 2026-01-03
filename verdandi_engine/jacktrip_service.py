@@ -41,9 +41,7 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             cmd = [
                 "jacktrip",
                 "-S",  # Hub server mode
-                "--bindport", str(port),
-                "-q", str(buffer_size),
-                "--bufstrategy", "3"  # Auto queue buffer strategy
+                "--bindport", str(port)
             ]
             # Note: Hub doesn't specify channels - clients do
             
@@ -133,8 +131,6 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 "--port", str(hub_port),  # Hub port
                 "-n", str(send_channels),
                 "-o", str(receive_channels),
-                "-q", str(buffer_size),
-                "--bufstrategy", "3",
                 "--clientname", hostname,
                 "--remotename", hostname  # Tell hub to name us by our hostname
             ]

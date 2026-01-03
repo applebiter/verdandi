@@ -1302,9 +1302,7 @@ class JackCanvasWithControls(QWidget):
                 import subprocess
                 cmd = [
                     "jacktrip", "-S",  # Hub server mode
-                    "--bindport", str(port),
-                    "-q", "128",  # Buffer size
-                    "--bufstrategy", "3"  # Auto queue buffer strategy
+                    "--bindport", str(port)
                 ]
                 try:
                     # Start process and capture output for error checking
@@ -1464,41 +1462,30 @@ class JackCanvasWithControls(QWidget):
                 import subprocess
                 import socket
                 
-                # Try to resolve hostname from IP, fallback to hostname portion
-                try:
-                    # If host is IP, try reverse DNS lookup
-                    if host.replace('.', '').replace(':', '').isdigit() or ':' in host:
-                        client_name = socket.gethostbyaddr(host)[0].split('.')[0]
-                    else:
-                        client_name = host.split('.')[0]
-                except:
-                    # Fallback: just use first part
-                    client_name = host.split('.')[0] if '.' in host else host
-                
-                # Get local hostname to tell the hub who we are
+                # Get local hostname - this is who we are
                 local_hostname = socket.gethostname().split('.')[0]
                 
                 cmd = [
                     "jacktrip", "-C", host,
-                    "--port", str(port),  # Hub port (use --port not -p)
-                    "-n", str(send_channels),  # Send channels
-                    "-o", str(receive_channels),  # Receive channels
-                    "-q", "128",  # Buffer size
-                    "--bufstrategy", "3",  # Auto queue buffer strategy
-                    "--clientname", client_name,
-                    "--remotename", local_hostname  # Tell hub to name us by our hostname
+                    "--port", str(port)
                 ]
+                
+                # Only add channel specs if non-default
+                if send_channels != 2:
+                    cmd.extend(["-n", str(send_channels)])
+                if receive_channels != 2:
+                    cmd.extend(["-o", str(receive_channels)])
                 try:
-                    # Start process and capture output for error checking
-                    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    # Start process - let stderr go to console so we can see errors
+                    logger.info(f"Starting JackTrip client: {' '.join(cmd)}")
+                    proc = subprocess.Popen(cmd)
                     # Give it a moment to fail if there's an immediate error
                     import time
                     time.sleep(0.5)
                     poll = proc.poll()
                     if poll is not None:
-                        # Process died, get error
-                        _, stderr = proc.communicate()
-                        raise Exception(f"JackTrip client failed to connect: {stderr.decode()}")
+                        # Process died immediately
+                        raise Exception(f"JackTrip client process died immediately (exit code {poll})")
                     location = "locally"
                 except Exception as e:
                     raise Exception(f"Failed to start local client: {e}")
