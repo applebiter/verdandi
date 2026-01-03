@@ -136,7 +136,7 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             cmd = [
                 "jacktrip",
                 "-C", hub_hostname,  # Hub server address
-                "--clientname", hostname,  # Name our local JACK client after our hostname
+                "--clientname", hub_hostname,  # Name our local JACK client after the hub
             ]
             
             # Add peer port if not default
