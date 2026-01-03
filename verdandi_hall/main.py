@@ -537,37 +537,40 @@ class VerdandiHall(QMainWindow):
 
     
     def _detect_jacktrip_state(self, jack_graph):
-        """Detect if JackTrip is running by checking JACK clients."""
+        """Detect if JackTrip is running by querying the daemon."""
         if not hasattr(self, 'remote_jack_canvas') or self.remote_jack_canvas is None:
             logger.warning("_detect_jacktrip_state called but remote_jack_canvas is None")
             return
         
-        # Get list of known node hostnames from database
-        known_hostnames = set()
+        # Query the daemon for actual JackTrip status
         try:
+            from verdandi_hall.grpc_client import VerdandiGrpcClient
             session = self.db.get_session()
-            nodes = session.query(Node).all()
-            known_hostnames = {node.hostname.lower() for node in nodes}
+            node = session.query(Node).filter_by(node_id=self.current_remote_node_id).first()
             session.close()
+            
+            if not node:
+                logger.warning(f"Node {self.current_remote_node_id} not found")
+                return
+            
+            with VerdandiGrpcClient(node) as client:
+                status = client.get_jacktrip_status()
+                
+                logger.info(f"JackTrip status from {node.hostname}: hub_running={status.hub_running}, client_running={status.client_running}")
+                
+                # Extract client names for hostname mapping
+                client_names = [c.name for c in jack_graph.clients]
+                
+                # Update remote canvas state based on daemon response
+                if hasattr(self.remote_jack_canvas, '_on_jacktrip_state_detected'):
+                    self.remote_jack_canvas._on_jacktrip_state_detected(
+                        status.hub_running,
+                        status.client_running,
+                        client_names
+                    )
+                        
         except Exception as e:
-            logger.error(f"Failed to get node list: {e}")
-        
-        # Look for jacktrip or node hostnames in client names
-        has_jacktrip = False
-        logger.info(f"Scanning {len(jack_graph.clients)} JACK clients for jacktrip...")
-        for client in jack_graph.clients:
-            client_lower = client.name.lower()
-            logger.debug(f"  Client: {client.name}")
-            # Check for "jacktrip" or any known node hostname
-            if 'jacktrip' in client_lower or client_lower in known_hostnames:
-                has_jacktrip = True
-                logger.info(f"Found JackTrip client: {client.name}")
-                break
-        
-        if has_jacktrip:
-            # JackTrip is running - assume hub mode for remote nodes
-            # (client mode would be on the local machine)
-            self.remote_jack_canvas.hub_running = True
+            logger.error(f"Failed to query JackTrip status: {e}", exc_info=True)
             self.remote_jack_canvas.start_hub_btn.setEnabled(False)
             self.remote_jack_canvas.stop_hub_btn.setEnabled(True)
             self.remote_jack_canvas.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
