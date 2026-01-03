@@ -1184,16 +1184,21 @@ class JackCanvasWithControls(QWidget):
         layout.addWidget(controls)
         
         # Canvas - pass node_id and remote_node for remote connections
+        # NOTE: Pass jack_manager=None initially to prevent auto-refresh before callback is set
         self.canvas = NodeCanvasWidget(
-            jack_manager=jack_manager, 
+            jack_manager=None, 
             parent=self, 
             node_id=node_id,
             remote_node=remote_node
         )
         layout.addWidget(self.canvas)
         
-        # Connect to canvas's jacktrip state detection
+        # Connect to canvas's jacktrip state detection BEFORE setting jack_manager
         self.canvas._jacktrip_state_detected = self._on_jacktrip_state_detected
+        
+        # Now set jack_manager to trigger initial refresh with callback in place
+        if jack_manager:
+            self.canvas.set_jack_manager(jack_manager)
     
     def _on_jacktrip_state_detected(self, has_hub: bool, has_client: bool):
         """Called when JackTrip state is detected from JACK graph."""
