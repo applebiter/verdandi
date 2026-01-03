@@ -122,8 +122,12 @@ class JackClientManager:
             self.client.connect(output_port, input_port)
             logger.info(f"Connected {output_port} -> {input_port}")
         except jack.JackError as e:
-            logger.error(f"Failed to connect {output_port} -> {input_port}: {e}")
-            raise
+            # Only log as error if it's not "already exists"
+            if "already exists" in str(e).lower() or "(17)" in str(e):
+                logger.debug(f"Connection {output_port} -> {input_port} already exists")
+            else:
+                logger.error(f"Failed to connect {output_port} -> {input_port}: {e}")
+                raise
     
     def disconnect_ports(self, output_port: str, input_port: str):
         """

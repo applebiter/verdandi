@@ -24,15 +24,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Startup confirmation
-print("=" * 60)
-print("VERDANDI JACK CANVAS LOADED - Color scheme:")
-print("  Audio nodes: Blue-gray (50, 60, 80)")
-print("  MIDI nodes: Red-gray (80, 50, 50)")
-print("  Mixed nodes: Purple-gray (70, 60, 80)")
-print("  Audio connections: Orange")
-print("  MIDI connections: Purple")
-print("=" * 60)
+# Color scheme:
+# Audio nodes: Blue-gray (50, 60, 80)
+# MIDI nodes: Red-gray (80, 50, 50)
+# Mixed nodes: Purple-gray (70, 60, 80)
+# Audio connections: Orange
+# MIDI connections: Purple
 
 
 # ============================================================================
@@ -246,13 +243,6 @@ class NodeGraphicsItem(QGraphicsItem):
         # Three-way color scheme based on port types
         margin = 10
         all_ports = self.model.inputs + self.model.outputs
-        
-        # TEMPORARY DEBUG - Print port info
-        if not hasattr(self, '_debug_printed'):
-            if all_ports:
-                print(f"NODE '{self.model.name}': {len(all_ports)} ports")
-                print(f"  Sample port: {all_ports[0].name}, is_midi={all_ports[0].is_midi}")
-            self._debug_printed = True
         
         if len(all_ports) > 0:
             has_audio = any(not p.is_midi for p in all_ports)
@@ -892,9 +882,7 @@ class NodeCanvasWidget(QWidget):
                 except Exception as e:
                     logger.warning(f"Error checking port type for {port_name}: {e}")
             
-            print(f"DEBUG: Total ports: {len(all_ports)}, MIDI ports: {len(midi_ports)}")
-            if midi_ports:
-                print(f"DEBUG: Sample MIDI ports: {list(midi_ports)[:3]}")
+            logger.debug(f"Total ports: {len(all_ports)}, MIDI ports: {len(midi_ports)}")
             
             for port_name in all_ports:
                 if ':' not in port_name:
