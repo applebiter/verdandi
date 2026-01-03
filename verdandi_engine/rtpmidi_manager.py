@@ -1,5 +1,5 @@
 """
-RTP-MIDI session manager for MIDI fabric links.
+RTP-MIDI session manager for MIDI links.
 Handles spawning and lifecycle of rtpmidid processes.
 """
 import asyncio
@@ -10,7 +10,6 @@ import shutil
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
-from verdandi_codex.models.fabric import FabricLink
 
 logger = structlog.get_logger()
 
@@ -60,7 +59,7 @@ class RTPMidiSession:
 
 class RTPMidiManager:
     """
-    Manages rtpmidid processes for MIDI fabric links.
+    Manages rtpmidid processes for MIDI links.
     
     Responsibilities:
     - Spawn rtpmidid clients for network MIDI sessions
@@ -99,7 +98,7 @@ class RTPMidiManager:
         Create a MIDI link by spawning an rtpmidid client.
         
         Args:
-            link_id: Fabric link UUID
+            link_id: Link UUID
             remote_host: Remote node IP address
             remote_port: Remote RTP-MIDI port (default 5004)
             session_name: MIDI session name (auto-generated if None)
@@ -191,7 +190,7 @@ class RTPMidiManager:
         Remove a MIDI link by terminating the rtpmidid process.
         
         Args:
-            link_id: Fabric link UUID
+            link_id: Link UUID
             
         Returns:
             True if session was terminated successfully
@@ -239,18 +238,6 @@ class RTPMidiManager:
                 exit_code=exit_code,
                 pid=session.process.pid
             )
-            
-            # Update database to mark link inactive
-            db = self.database.get_session()
-            try:
-                from verdandi_codex.models.fabric import LinkStatus
-                
-                link = db.get(FabricLink, session.link_id)
-                if link:
-                    link.status = LinkStatus.DOWN
-                    db.commit()
-            finally:
-                db.close()
                     
             # Clean up
             if session.link_id in self.sessions:

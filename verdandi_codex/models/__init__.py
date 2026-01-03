@@ -6,16 +6,6 @@ Exports all SQLAlchemy models for use throughout the application.
 
 from .identity import Node, NodeCapability, ServiceEndpoint, WakeProfile
 from .jacktrip import JackTripHub
-from .fabric import (
-    FabricGraph,
-    FabricLink,
-    FabricBundle,
-    BundleAttachment,
-    LinkType,
-    LinkStatus,
-    Directionality,
-    EndpointRole,
-)
 from .tasks import (
     TaskDefinition,
     TaskRun,
@@ -33,15 +23,8 @@ __all__ = [
     "NodeCapability",
     "ServiceEndpoint",
     "WakeProfile",
-    # Fabric
-    "FabricGraph",
-    "FabricLink",
-    "FabricBundle",
-    "BundleAttachment",
-    "LinkType",
-    "LinkStatus",
-    "Directionality",
-    "EndpointRole",
+    # JackTrip
+    "JackTripHub",
     # Tasks
     "TaskDefinition",
     "TaskRun",

@@ -14,11 +14,9 @@ from .services import (
     NodeIdentityServicer,
     HealthMetricsServicer,
     DiscoveryAndRegistryServicer,
-    FabricGraphServicer,
 )
 from .jack_service import JackServicer
 from .jacktrip_service import JackTripServicer
-from .fabric_manager import FabricGraphManager
 from .node_registry import NodeRegistry
 
 
@@ -31,14 +29,12 @@ class GrpcServer:
     def __init__(
         self,
         config: VerdandiConfig,
-        fabric_manager: FabricGraphManager,
         node_registry: NodeRegistry,
         jacktrip_manager=None,
         rtpmidi_manager=None,
         jack_connection_manager=None
     ):
         self.config = config
-        self.fabric_manager = fabric_manager
         self.node_registry = node_registry
         self.jacktrip_manager = jacktrip_manager
         self.rtpmidi_manager = rtpmidi_manager
@@ -64,16 +60,6 @@ class GrpcServer:
         )
         verdandi_pb2_grpc.add_DiscoveryAndRegistryServiceServicer_to_server(
             DiscoveryAndRegistryServicer(self.config, self.node_registry), self.server
-        )
-        verdandi_pb2_grpc.add_FabricGraphServiceServicer_to_server(
-            FabricGraphServicer(
-                self.config, 
-                self.fabric_manager,
-                self.jacktrip_manager,
-                self.rtpmidi_manager,
-                self.jack_connection_manager
-            ), 
-            self.server
         )
         verdandi_pb2_grpc.add_JackServiceServicer_to_server(
             JackServicer(self.jack_connection_manager), self.server

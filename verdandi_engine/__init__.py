@@ -3,7 +3,7 @@ Verdandi Engine - Always-on headless node daemon.
 
 The daemon is responsible for:
 - Node discovery and secure control plane
-- Fabric orchestration (audio/MIDI links)
+- Audio/MIDI connections via JackTrip and RTP-MIDI
 - Voice loop and command processing
 - Task execution and LLM routing
 - MCP integration

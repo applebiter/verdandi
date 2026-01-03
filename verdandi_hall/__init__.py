@@ -2,8 +2,7 @@
 Verdandi Hall - PySide6 GUI application.
 
 The GUI provides workspaces for:
-- Fabric Graph management
-- Local Patchbay viewing
+- Local and remote JACK graph viewing
 - Voice & Commands configuration
 - Task building and monitoring
 - Models & Routing policies

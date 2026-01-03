@@ -103,7 +103,7 @@ def cmd_certs(args):
 
 
 def cmd_nodes(args):
-    """List nodes in the fabric."""
+    """List registered nodes."""
     from verdandi_codex.database import Database
     from verdandi_codex.models import Node
     
@@ -130,103 +130,6 @@ def cmd_nodes(args):
             print(f"  Address:  {node.ip_last_seen}:{node.daemon_port}")
             print(f"  Status:   {node.status}")
             print(f"  Last Seen: {node.last_seen_at}")
-        
-        session.close()
-        
-    except Exception as e:
-        print(f"Error: {e}")
-
-
-def cmd_links(args):
-    """Manage fabric links."""
-    from verdandi_codex.database import Database
-    from verdandi_codex.models import FabricLink, Node
-    
-    config = VerdandiConfig.load()
-    
-    try:
-        db = Database(config.database)
-        session = db.get_session()
-        
-        if args.create_audio:
-            # Create audio link via gRPC
-            import grpc
-            import json
-            from verdandi_codex.proto import verdandi_pb2, verdandi_pb2_grpc
-            
-            if not args.node_a or not args.node_b or not args.host:
-                print("Error: --node-a, --node-b, and --host are required")
-                return
-            
-            # Load TLS credentials
-            import os
-            config_dir = os.path.expanduser('~/.config/verdandi')
-            with open(f'{config_dir}/certificates/ca.crt', 'rb') as f:
-                ca_cert = f.read()
-            with open(f'{config_dir}/certificates/node.crt', 'rb') as f:
-                client_cert = f.read()
-            with open(f'{config_dir}/certificates/node.key', 'rb') as f:
-                client_key = f.read()
-            
-            credentials = grpc.ssl_channel_credentials(
-                root_certificates=ca_cert,
-                private_key=client_key,
-                certificate_chain=client_cert
-            )
-            
-            channel = grpc.secure_channel(f'localhost:{config.daemon.grpc_port}', credentials)
-            stub = verdandi_pb2_grpc.FabricGraphServiceStub(channel)
-            
-            # Create the link
-            response = stub.CreateAudioLink(verdandi_pb2.CreateAudioLinkRequest(
-                node_a_id=args.node_a,
-                node_b_id=args.node_b,
-                params_json=json.dumps({
-                    'remote_host': args.host,
-                    'remote_port': args.port,
-                    'channels': args.channels,
-                    'sample_rate': args.sample_rate,
-                    'buffer_size': args.buffer_size
-                }),
-                create_voice_cmd_bundle=False
-            ))
-            
-            if response.success:
-                print(f"✓ Audio link created successfully")
-                print(f"  Link ID: {response.link_id}")
-                print(f"  {response.message}")
-            else:
-                print(f"✗ Failed to create audio link")
-                print(f"  {response.message}")
-            
-            channel.close()
-            return
-        
-        if args.list or not args.create_audio:
-            links = session.query(FabricLink).all()
-            
-            if not links:
-                print("No links defined in fabric graph.")
-                return
-            
-            print(f"Fabric Links ({len(links)})")
-            print("=" * 80)
-            
-            for link in links:
-                # Get node hostnames
-                node_a = session.query(Node).filter_by(node_id=link.node_a_id).first()
-                node_b = session.query(Node).filter_by(node_id=link.node_b_id).first()
-                
-                node_a_name = node_a.hostname if node_a else str(link.node_a_id)[:8]
-                node_b_name = node_b.hostname if node_b else str(link.node_b_id)[:8]
-                
-                print(f"\n[{link.link_type.value}] {node_a_name} ↔ {node_b_name}")
-                print(f"  Link ID:  {link.link_id}")
-                print(f"  Status:   {link.status.value}")
-                print(f"  Bundles:  {len(link.bundles)}")
-                
-                for bundle in link.bundles:
-                    print(f"    • {bundle.name} ({bundle.channels}ch, {bundle.directionality.value})")
         
         session.close()
         
@@ -310,59 +213,6 @@ def main():
     # Nodes command
     parser_nodes = subparsers.add_parser("nodes", help="List registered nodes")
     parser_nodes.set_defaults(func=cmd_nodes)
-    
-    # Links command
-    parser_links = subparsers.add_parser("links", help="Manage fabric links")
-    parser_links.add_argument(
-        "--list",
-        action="store_true",
-        help="List all links",
-    )
-    parser_links.add_argument(
-        "--create-audio",
-        action="store_true",
-        help="Create an audio link",
-    )
-    parser_links.add_argument(
-        "--node-a",
-        type=str,
-        help="Source node ID (or hostname)",
-    )
-    parser_links.add_argument(
-        "--node-b",
-        type=str,
-        help="Target node ID (or hostname)",
-    )
-    parser_links.add_argument(
-        "--host",
-        type=str,
-        help="Target host IP address",
-    )
-    parser_links.add_argument(
-        "--port",
-        type=int,
-        default=4464,
-        help="Target port (default: 4464)",
-    )
-    parser_links.add_argument(
-        "--channels",
-        type=int,
-        default=2,
-        help="Number of audio channels (default: 2)",
-    )
-    parser_links.add_argument(
-        "--sample-rate",
-        type=int,
-        default=48000,
-        help="JACK sample rate in Hz - must match all nodes (default: 48000)",
-    )
-    parser_links.add_argument(
-        "--buffer-size",
-        type=int,
-        default=128,
-        help="JACK buffer size in frames - must match all nodes (default: 128)",
-    )
-    parser_links.set_defaults(func=cmd_links)
     
     # JackTrip command
     parser_jacktrip = subparsers.add_parser("jacktrip", help="Manage JackTrip hub state")

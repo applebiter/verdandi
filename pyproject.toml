@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "verdandi"
 version = "0.1.0"
-description = "Local-first, peer-to-peer AI platform with real-time audio/MIDI fabric"
+description = "Local-first, peer-to-peer AI platform with real-time audio/MIDI"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -40,7 +40,7 @@ dependencies = [
     "structlog>=24.1.0",
     "psutil>=5.9.0",
     
-    # Audio/MIDI fabric
+    # Audio/MIDI
     "JACK-Client>=0.5.4",
 ]
 

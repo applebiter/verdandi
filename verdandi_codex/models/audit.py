@@ -19,7 +19,7 @@ class EventLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     node_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     severity = Column(String(20), nullable=False)  # DEBUG, INFO, WARNING, ERROR, CRITICAL
-    category = Column(String(50), nullable=False, index=True)  # DISCOVERY, FABRIC, VOICE, etc.
+    category = Column(String(50), nullable=False, index=True)  # DISCOVERY, AUDIO, VOICE, etc.
     message = Column(Text, nullable=False)
     data_json = Column(JSON, default=dict)
     

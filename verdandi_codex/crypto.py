@@ -15,19 +15,19 @@ from cryptography.hazmat.backends import default_backend
 
 
 class CertificateAuthority:
-    """Fabric Certificate Authority for mTLS trust."""
+    """Certificate Authority for mTLS trust."""
     
     def __init__(self, ca_cert: x509.Certificate, ca_key: rsa.RSAPrivateKey):
         self.ca_cert = ca_cert
         self.ca_key = ca_key
     
     @classmethod
-    def create_fabric_ca(
+    def create_ca(
         cls,
-        common_name: str = "Verdandi Fabric CA",
+        common_name: str = "Verdandi CA",
         validity_days: int = 3650,  # 10 years
     ) -> "CertificateAuthority":
-        """Create a new Fabric CA with self-signed root certificate."""
+        """Create a new CA with self-signed root certificate."""
         
         # Generate CA private key
         ca_key = rsa.generate_private_key(
@@ -200,14 +200,14 @@ class NodeCertificateManager:
         self.node_key_path = self.certs_dir / "node.key"
     
     def ensure_ca_exists(self) -> CertificateAuthority:
-        """Ensure Fabric CA exists, create if necessary."""
+        """Ensure CA exists, create if necessary."""
         if self.ca_cert_path.exists() and self.ca_key_path.exists():
             return CertificateAuthority.load_from_files(
                 self.ca_cert_path,
                 self.ca_key_path,
             )
         else:
-            ca = CertificateAuthority.create_fabric_ca()
+            ca = CertificateAuthority.create_ca()
             ca.save_to_files(self.ca_cert_path, self.ca_key_path)
             return ca
     

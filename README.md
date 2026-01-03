@@ -1,6 +1,6 @@
 # Verdandi
 
-A local-first, peer-to-peer platform for building always-on, multi-node AI systems on a LAN with integrated real-time audio and MIDI fabric.
+A local-first, peer-to-peer platform for building always-on, multi-node AI systems on a LAN with integrated real-time audio and MIDI.
 
 ## Overview
 
@@ -31,7 +31,6 @@ Verdandi enables distributed AI workflows across multiple machines on your local
 - ✅ gRPC-based remote control with mTLS security
 
 ### In Development
-- 🚧 Fabric topology visualization (JackTrip network graph)
 - 🚧 Task orchestration system
 - 🚧 Voice integration and session management
 

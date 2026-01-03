@@ -1,5 +1,5 @@
 """
-JackTrip session manager for audio fabric links.
+JackTrip session manager for audio links.
 Handles spawning and lifecycle of JackTrip client processes.
 """
 import asyncio
@@ -10,7 +10,6 @@ import shutil
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
-from verdandi_codex.models.fabric import FabricLink
 
 logger = structlog.get_logger()
 
@@ -63,7 +62,7 @@ class JackTripSession:
 
 class JackTripManager:
     """
-    Manages JackTrip client processes for audio fabric links.
+    Manages JackTrip client processes for audio links.
     
     Responsibilities:
     - Spawn JackTrip clients in P2P or hub-client mode
@@ -102,7 +101,7 @@ class JackTripManager:
         Create an audio link by spawning a JackTrip client.
         
         Args:
-            link_id: Fabric link UUID
+            link_id: Link UUID
             remote_host: Remote node IP address
             remote_port: Remote JackTrip port (UDP)
             channels: Number of audio channels (default 2)
@@ -207,7 +206,7 @@ class JackTripManager:
         Remove an audio link by terminating the JackTrip process.
         
         Args:
-            link_id: Fabric link UUID
+            link_id: Link UUID
             
         Returns:
             True if session was terminated successfully
@@ -255,18 +254,6 @@ class JackTripManager:
                 exit_code=exit_code,
                 pid=session.process.pid
             )
-            
-            # Update database to mark link inactive
-            db = self.database.get_session()
-            try:
-                from verdandi_codex.models.fabric import LinkStatus
-                
-                link = db.get(FabricLink, session.link_id)
-                if link:
-                    link.status = LinkStatus.DOWN
-                    db.commit()
-            finally:
-                db.close()
                     
             # Clean up
             if session.link_id in self.sessions:

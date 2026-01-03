@@ -3,7 +3,7 @@ Verdandi Rune - CLI for operations, debugging, and scripting.
 
 Command-line interface for:
 - Node administration
-- Fabric management
+- Audio/MIDI link management
 - Task execution
 - Log querying
 - System diagnostics

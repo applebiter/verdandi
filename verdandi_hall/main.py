@@ -1,5 +1,5 @@
 """
-Verdandi Hall - GUI application for managing the Verdandi fabric.
+Verdandi Hall - GUI application for Verdandi.
 """
 
 import sys
@@ -17,7 +17,7 @@ from PySide6.QtGui import QIcon, QAction
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
 from verdandi_codex.models.identity import Node
-from verdandi_hall.widgets import JackCanvas, JackCanvasWithControls, JackClientManager, FabricCanvasWidget
+from verdandi_hall.widgets import JackCanvas, JackCanvasWithControls, JackClientManager
 from verdandi_hall.widgets.jack_canvas import PortModel
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,6 @@ class VerdandiHall(QMainWindow):
         self._init_ui()
         self._init_database()
         self._init_jack()
-        self._init_fabric_tab()  # Initialize fabric tab after database
         self._init_node_list()  # Initialize node list dock
         
     def _init_ui(self):
@@ -82,12 +81,6 @@ class VerdandiHall(QMainWindow):
         self.remote_jack_canvas = None
         self.current_remote_node_id = None
         self.tabs.addTab(self._create_remote_jack_tab(), "Remote JACK")
-        
-        # Tab 4: Fabric Graph (will be created after database init)
-        self.fabric_tab_placeholder = QWidget()
-        placeholder_layout = QVBoxLayout(self.fabric_tab_placeholder)
-        placeholder_layout.addWidget(QLabel("Loading fabric graph..."))
-        self.tabs.addTab(self.fabric_tab_placeholder, "Fabric Graph")
         
         # Status bar
         self.status_bar = QStatusBar()
@@ -183,31 +176,6 @@ class VerdandiHall(QMainWindow):
         
         return widget
         
-    def _create_fabric_tab(self):
-        """Create the Fabric graph canvas tab."""
-        return FabricCanvasWidget(self.config, self.db, jack_manager=None, parent=self)
-        
-    def _init_fabric_tab(self):
-        """Initialize fabric tab after database is ready."""
-        if self.db:
-            self.fabric_widget = self._create_fabric_tab()
-            # Set JACK manager if already initialized
-            if hasattr(self, 'jack_manager') and self.jack_manager:
-                self.fabric_widget.jack_manager = self.jack_manager
-                self.fabric_widget.sample_rate = self.jack_manager.get_sample_rate()
-                self.fabric_widget.buffer_size = self.jack_manager.get_buffer_size()
-                # Update the display labels
-                self.fabric_widget.sample_rate_label.setText(f"Sample Rate: {self.fabric_widget.sample_rate} Hz")
-                self.fabric_widget.buffer_size_label.setText(f"Buffer Size: {self.fabric_widget.buffer_size} frames")
-            # Connect signals
-            self.fabric_widget.canvas.node_double_clicked.connect(self._on_fabric_node_clicked)
-            # Connect hub state coordination
-            self.fabric_widget.hub_started.connect(self._on_any_hub_started)
-            # Replace placeholder with actual widget
-            index = self.tabs.indexOf(self.fabric_tab_placeholder)
-            self.tabs.removeTab(index)
-            self.tabs.insertTab(index, self.fabric_widget, "Fabric Graph")
-        
     def _init_database(self):
         """Initialize database connection."""
         try:
@@ -222,12 +190,6 @@ class VerdandiHall(QMainWindow):
         try:
             self.jack_manager = JackClientManager("verdandi_hall")
             self.jack_canvas_widget.set_jack_manager(self.jack_manager)
-            # Update fabric widget with JACK settings if it exists
-            if hasattr(self, 'fabric_widget') and self.fabric_widget:
-                self.fabric_widget.jack_manager = self.jack_manager
-                if hasattr(self.fabric_widget, 'sample_rate'):
-                    self.fabric_widget.sample_rate = self.jack_manager.get_sample_rate()
-                    self.fabric_widget.buffer_size = self.jack_manager.get_buffer_size()
             self.status_bar.showMessage("✓ JACK connected", 3000)
         except Exception as e:
             self.status_bar.showMessage(f"✗ JACK error: {e}")
@@ -307,9 +269,6 @@ class VerdandiHall(QMainWindow):
         if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
             if hasattr(self.remote_jack_canvas, 'start_hub_btn'):
                 self.remote_jack_canvas.start_hub_btn.setEnabled(False)
-        
-        if hasattr(self, 'fabric_widget') and self.fabric_widget:
-            self.fabric_widget.start_hub_btn.setEnabled(False)
     
     def _is_any_hub_running(self):
         """Check if any hub is currently running on any panel."""
@@ -319,10 +278,6 @@ class VerdandiHall(QMainWindow):
         
         if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
             if hasattr(self.remote_jack_canvas, 'hub_running') and self.remote_jack_canvas.hub_running:
-                return True
-        
-        if hasattr(self, 'fabric_widget') and self.fabric_widget:
-            if self.fabric_widget.hub_running:
                 return True
         
         return False
@@ -354,9 +309,6 @@ class VerdandiHall(QMainWindow):
             if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
                 if hasattr(self.remote_jack_canvas, 'start_hub_btn'):
                     self.remote_jack_canvas.start_hub_btn.setEnabled(False)
-            
-            if hasattr(self, 'fabric_widget') and self.fabric_widget:
-                self.fabric_widget.start_hub_btn.setEnabled(False)
         else:
             logger.info("No hub running, enabling all Start Hub buttons")
             # Enable all Start Hub buttons (unless local hub is running on that specific node)
@@ -368,10 +320,6 @@ class VerdandiHall(QMainWindow):
                 if hasattr(self.remote_jack_canvas, 'start_hub_btn'):
                     if not (hasattr(self.remote_jack_canvas, 'hub_running') and self.remote_jack_canvas.hub_running):
                         self.remote_jack_canvas.start_hub_btn.setEnabled(True)
-            
-            if hasattr(self, 'fabric_widget') and self.fabric_widget:
-                if not self.fabric_widget.hub_running:
-                    self.fabric_widget.start_hub_btn.setEnabled(True)
     
     def _on_node_clicked(self, item: QListWidgetItem):
         """Handle node list item click - switch to Remote JACK tab and load that node's graph."""
@@ -706,16 +654,6 @@ class VerdandiHall(QMainWindow):
         self.settings.setValue("geometry", self.saveGeometry())
         event.accept()
     
-    def _on_fabric_node_clicked(self, node_id: str):
-        """Handle fabric canvas node double-click - load that node's JACK graph."""
-        # Use same logic as node list click
-        # Find the corresponding list item to trigger selection
-        for i in range(self.node_list.count()):
-            item = self.node_list.item(i)
-            if item.data(Qt.UserRole) == node_id:
-                self._on_node_clicked(item)
-                return
-    
     def _create_menu_bar(self):
         """Create the application menu bar."""
         menubar = self.menuBar()
@@ -744,7 +682,6 @@ class VerdandiHall(QMainWindow):
             "Clear Database State",
             "This will delete all data from the database including:\n\n"
             "• Node registrations\n"
-            "• Fabric connections\n"
             "• JackTrip sessions\n"
             "• All other state\n\n"
             "Are you sure you want to continue?",
@@ -770,8 +707,6 @@ class VerdandiHall(QMainWindow):
                 
                 # Refresh any displayed data
                 self._refresh_status()
-                if hasattr(self, 'fabric_widget'):
-                    self.fabric_widget.canvas.refresh()
                 
             except Exception as e:
                 logger.error(f"Error clearing database: {e}")

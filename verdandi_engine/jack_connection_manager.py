@@ -9,14 +9,13 @@ import jack
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
-from verdandi_codex.models.fabric import FabricLink
 
 logger = structlog.get_logger()
 
 
 class JackConnectionManager:
     """
-    Manages JACK port connections for the audio fabric.
+    Manages JACK port connections for audio links.
     
     Responsibilities:
     - Auto-connect JackTrip ports to local audio interfaces
@@ -35,7 +34,7 @@ class JackConnectionManager:
         """Initialize JACK client and register callbacks."""
         try:
             # Create JACK client for Verdandi
-            self.jack_client = jack.Client("verdandi_fabric")
+            self.jack_client = jack.Client("verdandi_jack")
             
             # Register port registration callback to detect new JackTrip ports
             self.jack_client.set_port_registration_callback(self._on_port_registered)
@@ -77,10 +76,10 @@ class JackConnectionManager:
             
     async def connect_link_ports(self, link_id: str) -> bool:
         """
-        Connect JACK ports for a specific fabric link using default auto-connection.
+        Connect JACK ports for a specific link using default auto-connection.
         
         Args:
-            link_id: Fabric link UUID
+            link_id: Link UUID
             
         Returns:
             True if connections were made successfully
@@ -169,10 +168,10 @@ class JackConnectionManager:
             
     async def disconnect_link_ports(self, link_id: str) -> bool:
         """
-        Disconnect all JACK ports associated with a fabric link.
+        Disconnect all JACK ports associated with a link.
         
         Args:
-            link_id: Fabric link UUID
+            link_id: Link UUID
             
         Returns:
             True if disconnections were successful
@@ -221,45 +220,26 @@ class JackConnectionManager:
                 if not self.jack_client:
                     continue
                     
-                # Fetch active links from database (sync)
-                db = self.database.get_session()
+                # Monitor all JackTrip ports and ensure they have connections
                 try:
-                    from sqlalchemy import select
-                    from verdandi_codex.models.fabric import LinkStatus
+                    jacktrip_ports = self.jack_client.get_ports(name_pattern="*verdandi_jacktrip*")
                     
-                    result = db.execute(
-                        select(FabricLink).where(
-                            FabricLink.status.in_([LinkStatus.DESIRED_UP, LinkStatus.OBSERVED_UP])
-                        )
-                    )
-                    active_links = result.scalars().all()
-                finally:
-                    db.close()
-                    
-                # Verify connections for each active link
-                for link in active_links:
-                    if link.link_type != "audio":
-                        continue
-                        
-                    # Check if JackTrip ports exist
-                    jacktrip_pattern = f"verdandi_jacktrip_{link.id[:8]}"
-                    ports = self.jack_client.get_ports(name_pattern=f"*{jacktrip_pattern}*")
-                    
-                    if ports:
-                        # Verify connections exist
-                        has_connections = False
-                        for port in ports:
-                            if self.jack_client.get_all_connections(port):
-                                has_connections = True
-                                break
-                                
-                        if not has_connections:
-                            logger.warning(
-                                "jacktrip_ports_not_connected",
-                                link_id=link.id,
-                                reconnecting=True
-                            )
-                            await self.connect_link_ports(link.id)
+                    for port in jacktrip_ports:
+                        connections = self.jack_client.get_all_connections(port)
+                        if not connections:
+                            # Extract link_id from port name and reconnect
+                            port_name = port.name
+                            # Port names are like "verdandi_jacktrip_LINKID:..."
+                            parts = port_name.split("_")
+                            if len(parts) >= 3:
+                                link_id_prefix = parts[2].split(":")[0]
+                                logger.warning(
+                                    "jacktrip_port_not_connected",
+                                    port_name=port_name,
+                                    link_id_prefix=link_id_prefix
+                                )
+                except jack.JackError:
+                    pass  # JACK connection issue, will retry
                             
             except asyncio.CancelledError:
                 break
