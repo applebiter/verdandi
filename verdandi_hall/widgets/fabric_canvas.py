@@ -74,7 +74,7 @@ class ConnectionPort(QGraphicsEllipseItem):
         
         self.setParentItem(parent_item)
         self.setAcceptHoverEvents(True)
-        self.setCursor(Qt.CrossCursor)
+        self.setCursor(Qt.PointingHandCursor)
         
         # Position: hub socket on bottom, client sockets on top
         radius = 45 if isinstance(parent_item, FabricNodeItem) else 35

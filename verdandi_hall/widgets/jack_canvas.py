@@ -148,6 +148,7 @@ class NodeGraphicsItem(QGraphicsItem):
         
         self.setPos(model.x, model.y)
         self.socket_radius = 5
+        self.setAcceptHoverEvents(True)
         self._calculate_size()
     
     def _calculate_size(self):
@@ -431,6 +432,21 @@ class NodeGraphicsItem(QGraphicsItem):
             event.accept()
         else:
             super().mouseReleaseEvent(event)
+    
+    def hoverMoveEvent(self, event):
+        """Update cursor based on whether hovering over a port socket."""
+        pos = event.pos()
+        port, _ = self.get_port_at_pos(pos)
+        if port:
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.unsetCursor()
+        super().hoverMoveEvent(event)
+    
+    def hoverLeaveEvent(self, event):
+        """Reset cursor when leaving node."""
+        self.unsetCursor()
+        super().hoverLeaveEvent(event)
 
 
 class ConnectionGraphicsItem(QGraphicsItem):
@@ -1156,6 +1172,16 @@ class JackCanvasWithControls(QWidget):
             self.stop_hub_btn.setEnabled(True)
             self.connect_client_btn.setEnabled(False)  # Can't connect to yourself as hub
             self.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
+        else:
+            # Hub not detected - but only update button if we weren't manually tracking it as running
+            if self.hub_running:
+                # Hub was running but now disappeared
+                self.hub_running = False
+                self.start_hub_btn.setEnabled(True)
+                self.stop_hub_btn.setEnabled(False)
+                # Don't disable connect button if not running as client
+                if not self.client_connected:
+                    self.connect_client_btn.setEnabled(True)
         
         if has_client:
             self.client_connected = True
@@ -1163,6 +1189,14 @@ class JackCanvasWithControls(QWidget):
             self.disconnect_client_btn.setEnabled(True)
             if not has_hub:  # Only update status if hub isn't also running
                 self.status_label.setText("Status: <b style='color: #6f6'>Connected</b>")
+        else:
+            # Client not detected in JACK - but if we manually tracked it as connected,
+            # keep disconnect button enabled to allow cleanup of zombie processes
+            if self.client_connected:
+                # Client was connected but now disappeared from JACK
+                # This could be a zombie process - keep disconnect button enabled
+                self.disconnect_client_btn.setEnabled(True)
+                self.status_label.setText("Status: <b style='color: #fa3'>Client Disconnected (cleanup available)</b>")
     
     def sync_hub_state(self):
         """Sync hub button state with current global hub state."""
@@ -1267,8 +1301,10 @@ class JackCanvasWithControls(QWidget):
                 # Start hub locally via subprocess
                 import subprocess
                 cmd = [
-                    "jacktrip", "-S",
-                    "--bindport", str(port)
+                    "jacktrip", "-S",  # Hub server mode
+                    "--bindport", str(port),
+                    "-q", "128",  # Buffer size
+                    "--bufstrategy", "3"  # Auto queue buffer strategy
                 ]
                 try:
                     # Start process and capture output for error checking
@@ -1444,9 +1480,11 @@ class JackCanvasWithControls(QWidget):
                 
                 cmd = [
                     "jacktrip", "-C", host,
-                    "--bindport", str(port),
-                    "--sendchannels", str(send_channels),
-                    "--receivechannels", str(receive_channels),
+                    "--port", str(port),  # Hub port (use --port not -p)
+                    "-n", str(send_channels),  # Send channels
+                    "-o", str(receive_channels),  # Receive channels
+                    "-q", "128",  # Buffer size
+                    "--bufstrategy", "3",  # Auto queue buffer strategy
                     "--clientname", client_name,
                     "--remotename", local_hostname  # Tell hub to name us by our hostname
                 ]

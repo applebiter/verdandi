@@ -130,7 +130,7 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             cmd = [
                 "jacktrip",
                 "-C", hub_address,  # Client mode
-                "-p", str(hub_port),
+                "--port", str(hub_port),  # Hub port
                 "-n", str(send_channels),
                 "-o", str(receive_channels),
                 "-q", str(buffer_size),
