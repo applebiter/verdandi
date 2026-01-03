@@ -395,6 +395,7 @@ class VerdandiHall(QMainWindow):
                     jack_graph = client.get_jack_graph()
                 
                 logger.info(f"Received JACK graph with {len(jack_graph.clients)} clients from {node.hostname}")
+                logger.info(f"Client names in response: {[c.name for c in jack_graph.clients]}")
                 
                 # Create canvas with remote data and controls if not exists
                 if not self.remote_jack_canvas:
@@ -619,6 +620,7 @@ class VerdandiHall(QMainWindow):
         canvas.model.end_batch()
         
         logger.info(f"Populated remote canvas with {len(jack_graph.clients)} clients and {len(jack_graph.connections)} connections")
+        logger.info(f"Canvas now has {len(canvas.model.nodes)} nodes: {list(canvas.model.nodes.keys())}")
 
     
     def _detect_jacktrip_state(self, jack_graph):
