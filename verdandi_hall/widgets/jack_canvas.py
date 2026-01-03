@@ -1173,30 +1173,34 @@ class JackCanvasWithControls(QWidget):
             self.connect_client_btn.setEnabled(False)  # Can't connect to yourself as hub
             self.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
         else:
-            # Hub not detected - but only update button if we weren't manually tracking it as running
+            # Hub not detected
             if self.hub_running:
                 # Hub was running but now disappeared
                 self.hub_running = False
                 self.start_hub_btn.setEnabled(True)
                 self.stop_hub_btn.setEnabled(False)
-                # Don't disable connect button if not running as client
                 if not self.client_connected:
                     self.connect_client_btn.setEnabled(True)
         
         if has_client:
+            # Client detected in JACK - update our tracking
+            was_connected = self.client_connected
             self.client_connected = True
             self.connect_client_btn.setEnabled(False)
             self.disconnect_client_btn.setEnabled(True)
             if not has_hub:  # Only update status if hub isn't also running
                 self.status_label.setText("Status: <b style='color: #6f6'>Connected</b>")
         else:
-            # Client not detected in JACK - but if we manually tracked it as connected,
-            # keep disconnect button enabled to allow cleanup of zombie processes
+            # Client not detected in JACK
             if self.client_connected:
-                # Client was connected but now disappeared from JACK
-                # This could be a zombie process - keep disconnect button enabled
-                self.disconnect_client_btn.setEnabled(True)
-                self.status_label.setText("Status: <b style='color: #fa3'>Client Disconnected (cleanup available)</b>")
+                # Client was connected but now disappeared - could be zombie
+                # Reset the flag and allow reconnection
+                self.client_connected = False
+                self.connect_client_btn.setEnabled(True)
+                self.disconnect_client_btn.setEnabled(True)  # Allow cleanup
+                if not self.hub_running:
+                    self.status_label.setText("Status: <b style='color: #fa3'>Client Disconnected (cleanup available)</b>")
+
     
     def sync_hub_state(self):
         """Sync hub button state with current global hub state."""
@@ -1462,13 +1466,23 @@ class JackCanvasWithControls(QWidget):
                 import subprocess
                 import socket
                 
-                # Get local hostname - this is who we are
+                # Get local hostname
                 local_hostname = socket.gethostname().split('.')[0]
                 
+                # Get hub hostname from IP
+                try:
+                    hub_hostname = socket.gethostbyaddr(host)[0].split('.')[0]
+                except:
+                    # Fallback: if IP doesn't resolve, try to extract from host string
+                    hub_hostname = host.split('.')[0] if '.' in host else host
+                
                 cmd = [
-                    "jacktrip", "-C", host,
-                    "--port", str(port)
+                    "jacktrip", "-C", hub_hostname  # Use hostname not IP
                 ]
+                
+                # Add peer port if not default
+                if port != 4464:
+                    cmd.extend(["--peerport", str(port)])
                 
                 # Only add channel specs if non-default
                 if send_channels != 2:
@@ -1476,16 +1490,23 @@ class JackCanvasWithControls(QWidget):
                 if receive_channels != 2:
                     cmd.extend(["-o", str(receive_channels)])
                 try:
-                    # Start process - let stderr go to console so we can see errors
+                    # Start process in background, detached from terminal
                     logger.info(f"Starting JackTrip client: {' '.join(cmd)}")
-                    proc = subprocess.Popen(cmd)
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
+                        start_new_session=True
+                    )
                     # Give it a moment to fail if there's an immediate error
                     import time
-                    time.sleep(0.5)
+                    time.sleep(2)  # Longer wait to see if it connects
                     poll = proc.poll()
                     if poll is not None:
-                        # Process died immediately
-                        raise Exception(f"JackTrip client process died immediately (exit code {poll})")
+                        # Process died, get error
+                        _, stderr = proc.communicate()
+                        error_msg = stderr.decode().strip() if stderr else "Unknown error"
+                        raise Exception(f"JackTrip client died (exit {poll}): {error_msg}")
                     location = "locally"
                 except Exception as e:
                     raise Exception(f"Failed to start local client: {e}")

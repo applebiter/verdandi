@@ -124,16 +124,29 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             import socket
             hostname = socket.gethostname().split('.')[0]  # Remove domain if present
             
+            # Resolve hub address to hostname
+            try:
+                hub_hostname = socket.gethostbyaddr(hub_address)[0].split('.')[0]
+            except:
+                # Fallback to address if can't resolve
+                hub_hostname = hub_address.split('.')[0] if '.' in hub_address else hub_address
+            
             # Build JackTrip command for client mode
             cmd = [
                 "jacktrip",
-                "-C", hub_address,  # Client mode
-                "--port", str(hub_port),  # Hub port
-                "-n", str(send_channels),
-                "-o", str(receive_channels),
-                "--clientname", hostname,
-                "--remotename", hostname  # Tell hub to name us by our hostname
+                "-C", hub_hostname,  # Use hostname not IP
             ]
+            
+            # Add peer port if not default
+            if hub_port != 4464:
+                cmd.extend(["--peerport", str(hub_port)])
+            
+            # Add channel specs
+            cmd.extend([
+                "-n", str(send_channels),
+                "-o", str(receive_channels)
+            ])
+            # Note: Removed --clientname and --remotename as they may cause naming issues
             
             logger.info(f"Starting JackTrip client: {' '.join(cmd)}")
             
