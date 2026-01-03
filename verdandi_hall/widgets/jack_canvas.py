@@ -849,6 +849,8 @@ class NodeCanvasWidget(QWidget):
                 is_midi = port_name in midi_ports
                 clients[client_name].append((port_short, port_name, is_output, is_midi))
             
+            logger.info(f"Raw JACK clients before any processing: {list(clients.keys())}")
+            
             # Create nodes with auto-layout (but restore old positions if available)
             x, y = 50, 50
             for client_name, ports in clients.items():
@@ -972,11 +974,13 @@ class NodeCanvasWidget(QWidget):
                 has_client = True
                 logger.info(f"Detected client: {client_name}")
         
+        # Also check if we have a known hub connection (client named after hub host)
+        # Pass the client names to parent so it can check its hub_host
         logger.info(f"Detection result: has_hub={has_hub}, has_client={has_client}, callback_set={self._jacktrip_state_detected is not None}")
         
-        # Notify parent widget if callback is set
+        # Notify parent widget if callback is set - pass client_names for additional checking
         if self._jacktrip_state_detected:
-            self._jacktrip_state_detected(has_hub, has_client)
+            self._jacktrip_state_detected(has_hub, has_client, client_names)
     
     def _get_last_preset_for_node(self) -> Optional[str]:
         """Get the last used preset name for this node."""
@@ -1206,8 +1210,15 @@ class JackCanvasWithControls(QWidget):
         if jack_manager:
             self.canvas.set_jack_manager(jack_manager)
     
-    def _on_jacktrip_state_detected(self, has_hub: bool, has_client: bool):
+    def _on_jacktrip_state_detected(self, has_hub: bool, has_client: bool, client_names: List[str] = None):
         """Called when JackTrip state is detected from JACK graph."""
+        # Check if our known hub host appears in JACK clients
+        if client_names and self.hub_host:
+            hub_hostname = self.hub_host.split('.')[0]  # Get short hostname
+            if hub_hostname in client_names or hub_hostname.lower() in [c.lower() for c in client_names]:
+                has_client = True
+                logger.info(f"Detected JackTrip client connection to {hub_hostname}")
+        
         if has_hub:
             self.hub_running = True
             self.start_hub_btn.setEnabled(False)
@@ -1555,11 +1566,11 @@ class JackCanvasWithControls(QWidget):
                     raise Exception(f"Failed to start local client: {e}")
             
             self.client_connected = True
-            self.hub_host = host
+            self.hub_host = hub_hostname  # Store hostname, not IP
             self.hub_port = port
             self.connect_client_btn.setEnabled(False)
             self.disconnect_client_btn.setEnabled(True)
-            self.status_label.setText(f"Status: <b style='color: #6f6'>Connected</b> to {host}:{port}")
+            self.status_label.setText(f"Status: <b style='color: #6f6'>Connected</b> to {hub_hostname}:{port}")
             
             # Show response message if available (for remote connections)
             if self.is_remote and 'response' in locals():
