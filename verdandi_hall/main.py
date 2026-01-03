@@ -585,20 +585,12 @@ class VerdandiHall(QMainWindow):
                         status.client_running,
                         client_names
                     )
+                    logger.info(f"Updated remote canvas state: hub={status.hub_running}, client={status.client_running}")
+                else:
+                    logger.warning("remote_jack_canvas doesn't have _on_jacktrip_state_detected method")
                         
         except Exception as e:
             logger.error(f"Failed to query JackTrip status: {e}", exc_info=True)
-            self.remote_jack_canvas.start_hub_btn.setEnabled(False)
-            self.remote_jack_canvas.stop_hub_btn.setEnabled(True)
-            self.remote_jack_canvas.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
-            logger.info("Set UI to show Hub Running")
-        else:
-            # No jacktrip found
-            self.remote_jack_canvas.hub_running = False
-            self.remote_jack_canvas.start_hub_btn.setEnabled(True)
-            self.remote_jack_canvas.stop_hub_btn.setEnabled(False)
-            self.remote_jack_canvas.status_label.setText("Status: <i>Idle</i>")
-            logger.info("No JackTrip found, set UI to Idle")
     
     def _load_remote_canvas_state(self, node_id: str):
         """Load saved canvas state (positions, connections) for a remote node."""
