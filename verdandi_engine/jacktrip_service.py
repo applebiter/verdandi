@@ -183,11 +183,9 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 "buffer_size": buffer_size
             }
             
-            # Include full command in response for debugging
-            cmd_string = ' '.join(cmd)
             return verdandi_pb2.JackTripOperationResponse(
                 success=True,
-                message=f"JackTrip client connected to {hub_address}:{hub_port}\n\nCommand executed:\n{cmd_string}"
+                message=f"JackTrip client connected to {hub_address}:{hub_port}"
             )
             
         except Exception as e:
