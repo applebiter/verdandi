@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QTabWidget, QLabel, QStatusBar, QPushButton, QMessageBox, QDockWidget,
     QListWidget, QListWidgetItem
 )
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QSettings
 from PySide6.QtGui import QIcon
 
 from verdandi_codex.config import VerdandiConfig
@@ -33,7 +33,15 @@ class VerdandiHall(QMainWindow):
         self.jack_manager = None
         
         self.setWindowTitle(f"Verdandi Hall - {self.config.node.hostname}")
-        self.setGeometry(100, 100, 1400, 900)
+        
+        # Restore window geometry from settings
+        self.settings = QSettings("Verdandi", "VerdandiHall")
+        geometry = self.settings.value("geometry")
+        if geometry:
+            self.restoreGeometry(geometry)
+        else:
+            # Default size if no saved geometry
+            self.setGeometry(100, 100, 1400, 900)
         
         self._init_ui()
         self._init_database()
@@ -675,6 +683,12 @@ class VerdandiHall(QMainWindow):
         # For now, this is a placeholder
         logger.info(f"Saving canvas state for remote node {node_id}")
         pass
+    
+    def closeEvent(self, event):
+        """Save window geometry before closing."""
+        self.settings.setValue("geometry", self.saveGeometry())
+        event.accept()
+    
     def _on_fabric_node_clicked(self, node_id: str):
         """Handle fabric canvas node double-click - load that node's JACK graph."""
         # Use same logic as node list click
