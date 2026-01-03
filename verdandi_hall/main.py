@@ -302,6 +302,52 @@ class VerdandiHall(QMainWindow):
         
         return False
     
+    def _sync_all_hub_states(self):
+        """Sync all hub button states by checking the database for any running hub."""
+        from verdandi_codex.models.jacktrip import JackTripHub
+        
+        # Check database for running hub
+        hub_is_running = False
+        hub_hostname = None
+        try:
+            session = self.db.get_session()
+            hub_record = session.query(JackTripHub).first()
+            if hub_record and hub_record.hub_hostname:
+                hub_is_running = True
+                hub_hostname = hub_record.hub_hostname
+            session.close()
+        except Exception as e:
+            logger.error(f"Failed to check hub state from database: {e}")
+        
+        # Update all hub buttons based on database state
+        if hub_is_running:
+            logger.info(f"Hub is running on {hub_hostname}, disabling all Start Hub buttons")
+            # Disable all Start Hub buttons
+            if hasattr(self, 'jack_canvas_widget') and self.jack_canvas_widget:
+                self.jack_canvas_widget.start_hub_btn.setEnabled(False)
+            
+            if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
+                if hasattr(self.remote_jack_canvas, 'start_hub_btn'):
+                    self.remote_jack_canvas.start_hub_btn.setEnabled(False)
+            
+            if hasattr(self, 'fabric_widget') and self.fabric_widget:
+                self.fabric_widget.start_hub_btn.setEnabled(False)
+        else:
+            logger.info("No hub running, enabling all Start Hub buttons")
+            # Enable all Start Hub buttons (unless local hub is running on that specific node)
+            if hasattr(self, 'jack_canvas_widget') and self.jack_canvas_widget:
+                if not self.jack_canvas_widget.hub_running:
+                    self.jack_canvas_widget.start_hub_btn.setEnabled(True)
+            
+            if hasattr(self, 'remote_jack_canvas') and self.remote_jack_canvas:
+                if hasattr(self.remote_jack_canvas, 'start_hub_btn'):
+                    if not (hasattr(self.remote_jack_canvas, 'hub_running') and self.remote_jack_canvas.hub_running):
+                        self.remote_jack_canvas.start_hub_btn.setEnabled(True)
+            
+            if hasattr(self, 'fabric_widget') and self.fabric_widget:
+                if not self.fabric_widget.hub_running:
+                    self.fabric_widget.start_hub_btn.setEnabled(True)
+    
     def _on_node_clicked(self, item: QListWidgetItem):
         """Handle node list item click - switch to Remote JACK tab and load that node's graph."""
         node_id = item.data(Qt.UserRole)
@@ -365,9 +411,6 @@ class VerdandiHall(QMainWindow):
                     # Connect hub coordination signal
                     self.remote_jack_canvas.hub_started.connect(self._on_any_hub_started)
                     
-                    # Sync hub state in case a hub is already running
-                    self.remote_jack_canvas.sync_hub_state()
-                    
                     self.remote_canvas_container.layout().addWidget(self.remote_jack_canvas)
                     self.current_remote_node_id = node_id
                 
@@ -376,6 +419,9 @@ class VerdandiHall(QMainWindow):
                 
                 # Always detect JackTrip state from JACK graph (handles restarts)
                 self._detect_jacktrip_state(jack_graph)
+                
+                # Always sync hub state after detecting state (this ensures button states are correct)
+                self._sync_all_hub_states()
                 
                 # Always load the last saved preset to restore positions
                 self.remote_jack_canvas.canvas._load_last_preset()
