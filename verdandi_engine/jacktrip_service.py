@@ -159,6 +159,21 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 start_new_session=True
             )
             
+            # Wait a moment and check if process is still alive
+            import time
+            time.sleep(2)
+            poll_result = self.client_process.poll()
+            if poll_result is not None:
+                # Process died, get error output
+                stdout, stderr = self.client_process.communicate()
+                error_msg = stderr.decode('utf-8', errors='ignore').strip() if stderr else "No error output"
+                logger.error(f"JackTrip client died immediately (exit code {poll_result}): {error_msg}")
+                self.client_process = None
+                return verdandi_pb2.JackTripOperationResponse(
+                    success=False,
+                    message=f"JackTrip client failed to start (exit {poll_result}): {error_msg}"
+                )
+            
             # Store config
             self.client_config = {
                 "hub_address": hub_address,
