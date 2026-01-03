@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QListWidget, QListWidgetItem
 )
 from PySide6.QtCore import Qt, QTimer, QSettings
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QIcon, QAction
 
 from verdandi_codex.config import VerdandiConfig
 from verdandi_codex.database import Database
@@ -51,6 +51,9 @@ class VerdandiHall(QMainWindow):
         
     def _init_ui(self):
         """Initialize the user interface."""
+        # Create menu bar
+        self._create_menu_bar()
+        
         # Central widget with tab system
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -122,6 +125,15 @@ class VerdandiHall(QMainWindow):
         info_label = QLabel(info_text)
         info_label.setTextFormat(Qt.RichText)
         layout.addWidget(info_label)
+        
+        # Database maintenance buttons
+        db_button_layout = QHBoxLayout()
+        clear_db_btn = QPushButton("🗑️ Clear Database State")
+        clear_db_btn.setToolTip("Clear all data from the database (useful for troubleshooting state issues)")
+        clear_db_btn.clicked.connect(self._clear_database_state)
+        db_button_layout.addWidget(clear_db_btn)
+        db_button_layout.addStretch()
+        layout.addLayout(db_button_layout)
         
         layout.addStretch()
         
@@ -703,6 +715,71 @@ class VerdandiHall(QMainWindow):
             if item.data(Qt.UserRole) == node_id:
                 self._on_node_clicked(item)
                 return
+    
+    def _create_menu_bar(self):
+        """Create the application menu bar."""
+        menubar = self.menuBar()
+        
+        # Tools menu
+        tools_menu = menubar.addMenu("&Tools")
+        
+        # Clear Database State action
+        clear_db_action = QAction("🗑️ Clear Database State", self)
+        clear_db_action.setToolTip("Clear all data from the database")
+        clear_db_action.triggered.connect(self._clear_database_state)
+        tools_menu.addAction(clear_db_action)
+        
+        tools_menu.addSeparator()
+        
+        # Exit action
+        exit_action = QAction("E&xit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        tools_menu.addAction(exit_action)
+    
+    def _clear_database_state(self):
+        """Clear all database state - useful for troubleshooting."""
+        reply = QMessageBox.question(
+            self,
+            "Clear Database State",
+            "This will delete all data from the database including:\n\n"
+            "• Node registrations\n"
+            "• Fabric connections\n"
+            "• JackTrip sessions\n"
+            "• All other state\n\n"
+            "Are you sure you want to continue?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            try:
+                logger.info("Clearing database state...")
+                self.db.drop_all_tables()
+                self.db.create_all_tables()
+                logger.info("Database state cleared successfully")
+                
+                QMessageBox.information(
+                    self,
+                    "Database Cleared",
+                    "Database state has been cleared successfully.\n\n"
+                    "You may want to restart the application for a clean state."
+                )
+                
+                self.status_bar.showMessage("Database state cleared", 5000)
+                
+                # Refresh any displayed data
+                self._refresh_status()
+                if hasattr(self, 'fabric_widget'):
+                    self.fabric_widget.canvas.load_from_database()
+                
+            except Exception as e:
+                logger.error(f"Error clearing database: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Error",
+                    f"Failed to clear database state:\n\n{str(e)}"
+                )
 
 
 def main():
