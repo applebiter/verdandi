@@ -530,6 +530,23 @@ class VerdandiHall(QMainWindow):
             except Exception as e:
                 logger.warning(f"Failed to add connection {conn.output_port} -> {conn.input_port}: {e}")
         
+        # Map JackTrip IP addresses to hostnames
+        import re
+        ip_pattern = re.compile(r'__ffff_(\d+\.\d+\.\d+\.\d+)')
+        for client in jack_graph.clients:
+            match = ip_pattern.match(client.name)
+            if match:
+                ip_address = match.group(1)
+                try:
+                    session = self.db.get_session()
+                    node = session.query(Node).filter_by(ip_last_seen=ip_address).first()
+                    session.close()
+                    if node:
+                        canvas.model.set_alias(client.name, node.hostname)
+                        logger.info(f"Mapped remote JackTrip client {ip_address} to {node.hostname}")
+                except Exception as e:
+                    logger.error(f"Failed to map IP {ip_address}: {e}")
+        
         # End batch mode - this triggers a single rebuild
         canvas.model.end_batch()
         
