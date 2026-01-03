@@ -234,6 +234,28 @@ def cmd_links(args):
         print(f"Error: {e}")
 
 
+def cmd_jacktrip(args):
+    """Manage JackTrip hub state."""
+    config = VerdandiConfig.load()
+    db = Database(config.database)
+    
+    if args.clear_hub:
+        from verdandi_codex.models.jacktrip import JackTripHub
+        
+        session = db.get_session()
+        hub = session.query(JackTripHub).first()
+        
+        if hub:
+            print(f"Clearing hub state: {hub.hub_hostname} (port {hub.hub_port})")
+            session.delete(hub)
+            session.commit()
+            print("✓ Hub state cleared from database")
+        else:
+            print("No hub state in database")
+        
+        session.close()
+
+
 def main():
     """Main CLI entry point."""
     structlog.configure(
@@ -341,6 +363,15 @@ def main():
         help="JACK buffer size in frames - must match all nodes (default: 128)",
     )
     parser_links.set_defaults(func=cmd_links)
+    
+    # JackTrip command
+    parser_jacktrip = subparsers.add_parser("jacktrip", help="Manage JackTrip hub state")
+    parser_jacktrip.add_argument(
+        "--clear-hub",
+        action="store_true",
+        help="Clear stale hub state from database",
+    )
+    parser_jacktrip.set_defaults(func=cmd_jacktrip)
     
     args = parser.parse_args()
     
