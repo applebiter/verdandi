@@ -1306,7 +1306,8 @@ class JackCanvasWithControls(QWidget):
                 import subprocess
                 cmd = [
                     "jacktrip", "-S",  # Hub server mode
-                    "--bindport", str(port)
+                    "--bindport", str(port),
+                    "--clientname", "Hub_Server"  # Name it "Hub Server" in JACK
                 ]
                 try:
                     # Start process and capture output for error checking

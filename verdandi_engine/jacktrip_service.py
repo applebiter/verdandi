@@ -41,7 +41,8 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             cmd = [
                 "jacktrip",
                 "-S",  # Hub server mode
-                "--bindport", str(port)
+                "--bindport", str(port),
+                "--clientname", "Hub_Server"  # Name it "Hub Server" in JACK
             ]
             # Note: Hub doesn't specify channels - clients do
             
