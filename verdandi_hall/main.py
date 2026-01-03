@@ -390,8 +390,11 @@ class VerdandiHall(QMainWindow):
             
             try:
                 # Query remote JACK graph
+                logger.info(f"Querying JACK graph from {node.hostname} ({node.ip_last_seen})")
                 with VerdandiGrpcClient(node) as client:
                     jack_graph = client.get_jack_graph()
+                
+                logger.info(f"Received JACK graph with {len(jack_graph.clients)} clients from {node.hostname}")
                 
                 # Create canvas with remote data and controls if not exists
                 if not self.remote_jack_canvas:

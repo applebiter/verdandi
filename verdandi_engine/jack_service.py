@@ -44,6 +44,7 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
         try:
             # Get all ports
             all_ports = client.get_ports()
+            logger.info(f"GetJackGraph: Found {len(all_ports)} total ports")
             output_ports = set(p.name for p in client.get_ports() if p.is_output)
             
             # Group ports by client name
@@ -62,6 +63,7 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
                         'input_ports': [],
                         'output_ports': []
                     }
+                    logger.info(f"GetJackGraph: Found client '{client_name}'")
                 
                 # Check if port is output and if it's MIDI
                 is_output = port_name in output_ports
