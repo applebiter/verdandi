@@ -486,6 +486,8 @@ class VerdandiHall(QMainWindow):
             client_name = client.name  # Keep original name for node creation
             hostname_alias = None  # Track if we need to set an alias
             
+            logger.info(f"Processing remote client: {client_name} (has {len(client.input_ports)} inputs, {len(client.output_ports)} outputs)")
+            
             # Check if this is a JackTrip client - map to hostname for display
             import re
             ip_pattern = re.compile(r'__ffff_(\d+\.\d+\.\d+\.\d+)')
