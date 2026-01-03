@@ -30,6 +30,8 @@ print("VERDANDI JACK CANVAS LOADED - Color scheme:")
 print("  Audio nodes: Blue-gray (50, 60, 80)")
 print("  MIDI nodes: Red-gray (80, 50, 50)")
 print("  Mixed nodes: Purple-gray (70, 60, 80)")
+print("  Audio connections: Orange")
+print("  MIDI connections: Purple")
 print("=" * 60)
 
 
@@ -59,6 +61,7 @@ class ConnectionModel:
     """Pure data: connection between two ports."""
     output_port: str  # full name
     input_port: str   # full name
+    is_midi: bool = False  # Track if this is a MIDI connection
 
 class GraphModel(QObject):
     """Pure data model of the JACK graph. No rendering logic."""
@@ -91,6 +94,37 @@ class GraphModel(QObject):
         """Get display name (alias if set, otherwise original)."""
         return self.aliases.get(original_name, original_name)
     
+    def get_original_name(self, display_name: str) -> str:
+        """Get original name from display name (reverse lookup of alias)."""
+        # Check if this is an alias (value in aliases dict)
+        for original, alias in self.aliases.items():
+            if alias == display_name:
+                return original
+        # Not an alias, return as-is
+        return display_name
+    
+    def is_connection_midi(self, output_port: str, input_port: str) -> bool:
+        """Check if a connection is MIDI based on the port types."""
+        # Parse client names from port names
+        if ':' not in output_port or ':' not in input_port:
+            return False
+        
+        out_client = output_port.split(':')[0]
+        in_client = input_port.split(':')[0]
+        
+        # Check both nodes - if either has MIDI ports with this name, it's MIDI
+        for node in self.nodes.values():
+            if node.name == out_client or self.get_original_name(node.name) == out_client:
+                for port in node.outputs:
+                    if port.full_name == output_port:
+                        return port.is_midi
+            if node.name == in_client or self.get_original_name(node.name) == in_client:
+                for port in node.inputs:
+                    if port.full_name == input_port:
+                        return port.is_midi
+        
+        return False
+    
     def move_node(self, name: str, x: float, y: float):
         if name in self.nodes:
             self.nodes[name].x = x
@@ -98,7 +132,8 @@ class GraphModel(QObject):
             self.changed.emit()
     
     def add_connection(self, output_port: str, input_port: str):
-        conn = ConnectionModel(output_port, input_port)
+        is_midi = self.is_connection_midi(output_port, input_port)
+        conn = ConnectionModel(output_port, input_port, is_midi)
         if conn not in self.connections:
             self.connections.append(conn)
             if not self._batch_mode:
@@ -468,11 +503,19 @@ class ConnectionGraphicsItem(QGraphicsItem):
         return self.path.boundingRect().adjusted(-5, -5, 5, 5)  # Add padding for click area
     
     def paint(self, painter, option, widget):
-        # Highlight on hover or selection
-        if self._hovered or self.isSelected():
-            painter.setPen(QPen(QColor(255, 100, 100), 4))
+        # Choose color based on connection type
+        if self.conn.is_midi:
+            # MIDI connections: purple/magenta
+            if self._hovered or self.isSelected():
+                painter.setPen(QPen(QColor(255, 100, 255), 4))  # Bright magenta when hovered
+            else:
+                painter.setPen(QPen(QColor(200, 100, 255), 2))  # Purple for MIDI
         else:
-            painter.setPen(QPen(QColor(255, 200, 100), 2))
+            # Audio connections: orange/yellow
+            if self._hovered or self.isSelected():
+                painter.setPen(QPen(QColor(255, 100, 100), 4))  # Red when hovered
+            else:
+                painter.setPen(QPen(QColor(255, 200, 100), 2))  # Orange for audio
         painter.drawPath(self.path)
     
     def hoverEnterEvent(self, event):
@@ -546,8 +589,11 @@ class ConnectionGraphicsItem(QGraphicsItem):
         if ':' not in full_port_name:
             return None
         
-        client_name = full_port_name.split(':')[0]
+        # Get the actual client name from the port (not aliased)
+        original_client_name = full_port_name.split(':')[0]
         port_name = ':'.join(full_port_name.split(':')[1:])
+        
+        client_name = original_client_name
         
         # Handle system split
         if client_name == "system":
@@ -555,6 +601,14 @@ class ConnectionGraphicsItem(QGraphicsItem):
                 client_name = "system (capture)"
             elif "playback" in port_name:
                 client_name = "system (playback)"
+        
+        # Handle a2j split
+        elif client_name.startswith("a2j"):
+            # a2j clients are split based on whether they're input or output ports
+            if is_output:
+                client_name = f"{original_client_name} (capture)"
+            else:
+                client_name = f"{original_client_name} (playback)"
         
         node_item = self.node_items.get(client_name)
         if node_item:
