@@ -913,14 +913,14 @@ class NodeCanvasWidget(QWidget):
                 for in_port in in_ports:
                     self.model.add_connection(out_port, in_port)
             
-            # Map JackTrip IP addresses to hostnames
+            # Detect JackTrip state BEFORE hostname mapping (so we can match IP patterns)
+            self._detect_jacktrip_state_from_clients(list(clients.keys()))
+            
+            # Map JackTrip IP addresses to hostnames (this changes the display names)
             self._map_jacktrip_clients_to_hostnames(list(clients.keys()))
             
             # End batch - trigger single rebuild
             self.model.end_batch()
-            
-            # Detect JackTrip state from the graph and update buttons
-            self._detect_jacktrip_state_from_clients(list(clients.keys()))
         
         except Exception as e:
             logger.error(f"Error refreshing from JACK: {e}", exc_info=True)
@@ -956,6 +956,8 @@ class NodeCanvasWidget(QWidget):
         has_hub = False
         has_client = False
         
+        logger.info(f"Detecting JackTrip state from clients: {client_names}")
+        
         # Pattern to match JackTrip IP-based client names
         ip_pattern = re.compile(r'__ffff_\d+\.\d+\.\d+\.\d+')
         
@@ -964,9 +966,13 @@ class NodeCanvasWidget(QWidget):
             # Check for JackTrip hub
             if client_lower == "hub_server":
                 has_hub = True
+                logger.info(f"Detected hub: {client_name}")
             # Check for JackTrip clients (IP-based names or containing "jacktrip")
             elif ip_pattern.match(client_name) or ("jacktrip" in client_lower and client_lower != "jacktrip"):
                 has_client = True
+                logger.info(f"Detected client: {client_name}")
+        
+        logger.info(f"Detection result: has_hub={has_hub}, has_client={has_client}, callback_set={self._jacktrip_state_detected is not None}")
         
         # Notify parent widget if callback is set
         if self._jacktrip_state_detected:
