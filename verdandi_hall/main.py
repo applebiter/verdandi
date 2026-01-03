@@ -437,20 +437,21 @@ class VerdandiHall(QMainWindow):
         # Add clients and ports
         x, y = 50, 50  # Starting position for auto-layout
         for client in jack_graph.clients:
-            client_name = client.name
+            client_name = client.name  # Keep original name for node creation
+            hostname_alias = None  # Track if we need to set an alias
             
-            # Check if this is a JackTrip client - rename appropriately
+            # Check if this is a JackTrip client - map to hostname for display
             import re
             ip_pattern = re.compile(r'__ffff_(\d+\.\d+\.\d+\.\d+)')
             if ip_pattern.match(client_name):
                 # This is a JackTrip client connection
-                # Map to hostname
+                # Map to hostname for display, but keep original name for node
                 ip_address = ip_pattern.match(client_name).group(1)
                 try:
                     node = session.query(Node).filter_by(ip_last_seen=ip_address).first()
                     if node:
-                        client_name = node.hostname
-                        logger.info(f"Mapped JackTrip client {ip_address} to {client_name}")
+                        hostname_alias = node.hostname
+                        logger.info(f"Will map JackTrip client {ip_address} to display as {hostname_alias}")
                 except:
                     pass
             
@@ -519,6 +520,10 @@ class VerdandiHall(QMainWindow):
                 # Normal client - keep inputs and outputs together
                 node = canvas.model.add_node(client_name, x, y)
                 
+                # Set hostname alias if this is a JackTrip client
+                if hostname_alias:
+                    canvas.model.set_alias(client_name, hostname_alias)
+                
                 # Add input ports
                 for jack_port in client.input_ports:
                     node.inputs.append(
@@ -559,23 +564,6 @@ class VerdandiHall(QMainWindow):
                 )
             except Exception as e:
                 logger.warning(f"Failed to add connection {conn.output_port} -> {conn.input_port}: {e}")
-        
-        # Map JackTrip IP addresses to hostnames
-        import re
-        ip_pattern = re.compile(r'__ffff_(\d+\.\d+\.\d+\.\d+)')
-        for client in jack_graph.clients:
-            match = ip_pattern.match(client.name)
-            if match:
-                ip_address = match.group(1)
-                try:
-                    session = self.db.get_session()
-                    node = session.query(Node).filter_by(ip_last_seen=ip_address).first()
-                    session.close()
-                    if node:
-                        canvas.model.set_alias(client.name, node.hostname)
-                        logger.info(f"Mapped remote JackTrip client {ip_address} to {node.hostname}")
-                except Exception as e:
-                    logger.error(f"Failed to map IP {ip_address}: {e}")
         
         # End batch mode - this triggers a single rebuild
         canvas.model.end_batch()

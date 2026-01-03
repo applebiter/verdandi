@@ -700,6 +700,8 @@ class GraphCanvas(QGraphicsView):
     
     def _create_jack_connection(self, output_port: str, input_port: str):
         """Create a JACK connection between two ports."""
+        logger.info(f"Attempting to connect: {output_port} -> {input_port}")
+        
         # Get parent widget to access jack_manager or remote_node
         parent = self.parent()
         while parent and not hasattr(parent, 'jack_manager') and not hasattr(parent, 'remote_node'):
@@ -709,10 +711,12 @@ class GraphCanvas(QGraphicsView):
             try:
                 if parent.jack_manager:
                     # Local connection
+                    logger.info(f"Creating local connection")
                     parent.jack_manager.connect_ports(output_port, input_port)
                     parent.refresh_from_jack()
                 elif parent.remote_node:
                     # Remote connection via gRPC
+                    logger.info(f"Creating remote connection to {parent.remote_node.hostname}")
                     from verdandi_hall.grpc_client import VerdandiGrpcClient
                     with VerdandiGrpcClient(parent.remote_node, timeout=10) as client:
                         response = client.connect_jack_ports(output_port, input_port)
