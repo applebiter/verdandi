@@ -135,7 +135,8 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             # Build JackTrip command for client mode
             cmd = [
                 "jacktrip",
-                "-C", hub_hostname,  # Use hostname not IP
+                "-C", hub_hostname,  # Hub server address
+                "--clientname", hostname,  # Name our local JACK client after our hostname
             ]
             
             # Add peer port if not default
@@ -147,7 +148,6 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 "-n", str(send_channels),
                 "-o", str(receive_channels)
             ])
-            # Note: Removed --clientname and --remotename as they may cause naming issues
             
             logger.info(f"Starting JackTrip client: {' '.join(cmd)}")
             
