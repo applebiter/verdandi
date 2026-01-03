@@ -635,8 +635,8 @@ class GraphCanvas(QGraphicsView):
         self.model.changed.connect(self.rebuild_view)
     
     def wheelEvent(self, event):
-        factor = 1.25 if event.angleDelta().y() > 0 else 0.8
-        self.scale(factor, factor)
+        # Smaller zoom increment for finer control (was 1.25/0.8)
+        factor = 1.1 if event.angleDelta().y() > 0 else 0.9
         self.scale(factor, factor)
     
     def start_connection_drag(self, start_pos: QPointF, start_port: str, is_output: bool):
