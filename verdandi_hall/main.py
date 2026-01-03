@@ -262,8 +262,12 @@ class VerdandiHall(QMainWindow):
             # Clear and repopulate list
             self.node_list.clear()
             
+            logger.debug(f"Local node_id: {self.config.node.node_id}")
+            
             for node in nodes:
                 is_local = node.node_id == self.config.node.node_id
+                
+                logger.debug(f"Checking node {node.hostname} (id: {node.node_id}), is_local: {is_local}")
                 
                 # Skip local node - it should not be shown in the network nodes list
                 # to avoid confusion (clicking it would load local graph into remote graph)
