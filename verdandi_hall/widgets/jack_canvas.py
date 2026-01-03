@@ -1383,6 +1383,46 @@ class JackCanvasWithControls(QWidget):
             self.stop_hub_btn.setEnabled(True)
             self.status_label.setText(f"Status: <b style='color: #6f6'>Hub Running</b> (port {port})")
             
+            # Save hub info to database
+            from verdandi_codex.database import Database
+            from verdandi_codex.models.jacktrip import JackTripHub
+            from verdandi_codex.models.identity import Node
+            try:
+                db = Database()
+                session = db.get_session()
+                
+                # Get node ID
+                if self.is_remote:
+                    hub_node_id = self.remote_node.node_id
+                    hub_hostname = self.remote_node.hostname
+                else:
+                    # Get local node
+                    import socket
+                    local_hostname = socket.gethostname().split('.')[0]
+                    node = session.query(Node).filter_by(hostname=local_hostname).first()
+                    hub_node_id = node.node_id if node else None
+                    hub_hostname = local_hostname
+                
+                # Update or create hub record
+                hub_record = session.query(JackTripHub).first()
+                if hub_record:
+                    hub_record.hub_node_id = hub_node_id
+                    hub_record.hub_hostname = hub_hostname
+                    hub_record.hub_port = port
+                else:
+                    hub_record = JackTripHub(
+                        hub_node_id=hub_node_id,
+                        hub_hostname=hub_hostname,
+                        hub_port=port
+                    )
+                    session.add(hub_record)
+                
+                session.commit()
+                session.close()
+                logger.info(f"Saved hub info to database: {hub_hostname}")
+            except Exception as e:
+                logger.error(f"Failed to save hub info: {e}")
+            
             # Emit signal to coordinate with other control panels
             self.hub_started.emit()
             
@@ -1417,6 +1457,23 @@ class JackCanvasWithControls(QWidget):
             self.start_hub_btn.setEnabled(True)
             self.stop_hub_btn.setEnabled(False)
             self.status_label.setText("Status: <i>Idle</i>")
+            
+            # Clear hub info from database
+            from verdandi_codex.database import Database
+            from verdandi_codex.models.jacktrip import JackTripHub
+            try:
+                db = Database()
+                session = db.get_session()
+                hub_record = session.query(JackTripHub).first()
+                if hub_record:
+                    hub_record.hub_node_id = None
+                    hub_record.hub_hostname = None
+                    hub_record.hub_port = None
+                    session.commit()
+                    logger.info("Cleared hub info from database")
+                session.close()
+            except Exception as e:
+                logger.error(f"Failed to clear hub info: {e}")
             
             QMessageBox.information(self, "Hub Stopped", f"JackTrip hub server stopped {location}.")
             

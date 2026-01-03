@@ -422,10 +422,37 @@ class VerdandiHall(QMainWindow):
         # Clear existing data
         canvas.model.clear()
         
+        # Get hub info from database to determine naming
+        from verdandi_codex.models.jacktrip import JackTripHub
+        hub_hostname = None
+        session = self.db.get_session()
+        try:
+            hub_record = session.query(JackTripHub).first()
+            if hub_record and hub_record.hub_hostname:
+                hub_hostname = hub_record.hub_hostname
+                logger.info(f"Hub is running on: {hub_hostname}")
+        except Exception as e:
+            logger.error(f"Failed to get hub info: {e}")
+        
         # Add clients and ports
         x, y = 50, 50  # Starting position for auto-layout
         for client in jack_graph.clients:
             client_name = client.name
+            
+            # Check if this is a JackTrip client - rename appropriately
+            import re
+            ip_pattern = re.compile(r'__ffff_(\d+\.\d+\.\d+\.\d+)')
+            if ip_pattern.match(client_name):
+                # This is a JackTrip client connection
+                # Map to hostname
+                ip_address = ip_pattern.match(client_name).group(1)
+                try:
+                    node = session.query(Node).filter_by(ip_last_seen=ip_address).first()
+                    if node:
+                        client_name = node.hostname
+                        logger.info(f"Mapped JackTrip client {ip_address} to {client_name}")
+                except:
+                    pass
             
             # Split system and a2j clients into capture/playback nodes
             if client_name == "system":
@@ -519,6 +546,9 @@ class VerdandiHall(QMainWindow):
                 if x > 800:
                     x = 50
                     y += 150
+        
+        # Close session
+        session.close()
         
         # Add connections
         for conn in jack_graph.connections:

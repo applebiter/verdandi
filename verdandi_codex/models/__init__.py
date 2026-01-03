@@ -5,6 +5,7 @@ Exports all SQLAlchemy models for use throughout the application.
 """
 
 from .identity import Node, NodeCapability, ServiceEndpoint, WakeProfile
+from .jacktrip import JackTripHub
 from .fabric import (
     FabricGraph,
     FabricLink,
