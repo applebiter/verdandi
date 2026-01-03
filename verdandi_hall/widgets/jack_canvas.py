@@ -1063,10 +1063,21 @@ class NodeCanvasWidget(QWidget):
             transform = self.transform()
             zoom_level = transform.m11()  # Get horizontal scale factor
             
+            # Store positions with both real name and alias to avoid mismatches on reload
+            positions_v2 = []
+            for n in self.model.nodes.values():
+                positions_v2.append({
+                    "name": n.name,
+                    "alias": self.model.aliases.get(n.name),
+                    "pos": (n.x, n.y)
+                })
+
             data = {
                 "name": name,
                 "connections": {c.output_port: [c.input_port] for c in self.model.connections},
+                # Legacy map for backward compatibility; keep alongside the richer V2 data
                 "positions": {n.name: (n.x, n.y) for n in self.model.nodes.values()},
+                "positions_v2": positions_v2,
                 "aliases": self.model.aliases.copy(),  # Save client aliases
                 "zoom_level": zoom_level  # Save zoom level
             }
@@ -1100,8 +1111,9 @@ class NodeCanvasWidget(QWidget):
         
         # Store positions to be applied during next refresh
         self._preset_positions = data.get("positions", {})
+        self._preset_positions_v2 = data.get("positions_v2", [])
         
-        # Load aliases
+        # Load aliases first so display names resolve before positioning
         self.model.aliases = data.get("aliases", {})
         
         # Restore zoom level if saved
@@ -1110,10 +1122,32 @@ class NodeCanvasWidget(QWidget):
             self.resetTransform()
             self.scale(zoom_level, zoom_level)
         
-        # Apply positions immediately to existing nodes
-        for node_name, (x, y) in self._preset_positions.items():
-            if node_name in self.model.nodes:
-                self.model.move_node(node_name, x, y)
+        # Apply positions immediately to existing nodes (match by real name or alias)
+        if self._preset_positions_v2:
+            # Prefer V2 data if present
+            for entry in self._preset_positions_v2:
+                entry_names = [entry.get("name")]
+                if entry.get("alias"):
+                    entry_names.append(entry.get("alias"))
+                pos = entry.get("pos", None)
+                if not pos:
+                    continue
+                for node in self.model.nodes.values():
+                    display_name = self.model.get_display_name(node.name)
+                    if node.name in entry_names or display_name in entry_names:
+                        self.model.move_node(node.name, pos[0], pos[1])
+        else:
+            # Legacy positions map
+            for node_name, (x, y) in self._preset_positions.items():
+                # Try matching by real name
+                if node_name in self.model.nodes:
+                    self.model.move_node(node_name, x, y)
+                    continue
+                # Fallback: match by display (alias) name
+                for node in self.model.nodes.values():
+                    if self.model.get_display_name(node.name) == node_name:
+                        self.model.move_node(node.name, x, y)
+                        break
         
         # Apply connections (only if jack_manager available)
         if self.jack_manager:
@@ -1184,8 +1218,9 @@ class NodeCanvasWidget(QWidget):
             
             # Store positions to be applied during next refresh
             self._preset_positions = data.get("positions", {})
-            
-            # Load aliases
+            self._preset_positions_v2 = data.get("positions_v2", [])
+        
+            # Load aliases first so display names resolve before positioning
             self.model.aliases = data.get("aliases", {})
             
             # Restore zoom level if saved
@@ -1194,10 +1229,28 @@ class NodeCanvasWidget(QWidget):
                 self.resetTransform()
                 self.scale(zoom_level, zoom_level)
             
-            # Apply positions immediately to existing nodes
-            for node_name, (x, y) in self._preset_positions.items():
-                if node_name in self.model.nodes:
-                    self.model.move_node(node_name, x, y)
+            # Apply positions immediately to existing nodes (match by real name or alias)
+            if self._preset_positions_v2:
+                for entry in self._preset_positions_v2:
+                    entry_names = [entry.get("name")]
+                    if entry.get("alias"):
+                        entry_names.append(entry.get("alias"))
+                    pos = entry.get("pos", None)
+                    if not pos:
+                        continue
+                    for node in self.model.nodes.values():
+                        display_name = self.model.get_display_name(node.name)
+                        if node.name in entry_names or display_name in entry_names:
+                            self.model.move_node(node.name, pos[0], pos[1])
+            else:
+                for node_name, (x, y) in self._preset_positions.items():
+                    if node_name in self.model.nodes:
+                        self.model.move_node(node_name, x, y)
+                        continue
+                    for node in self.model.nodes.values():
+                        if self.model.get_display_name(node.name) == node_name:
+                            self.model.move_node(node.name, x, y)
+                            break
             
             # Apply connections (only if jack_manager available)
             if self.jack_manager:
