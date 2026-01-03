@@ -771,7 +771,7 @@ class VerdandiHall(QMainWindow):
                 # Refresh any displayed data
                 self._refresh_status()
                 if hasattr(self, 'fabric_widget'):
-                    self.fabric_widget.canvas.load_from_database()
+                    self.fabric_widget.canvas.refresh()
                 
             except Exception as e:
                 logger.error(f"Error clearing database: {e}")
