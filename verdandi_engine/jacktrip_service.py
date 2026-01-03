@@ -143,10 +143,10 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             if hub_port != 4464:
                 cmd.extend(["--peerport", str(hub_port)])
             
-            # Add channel specs
+            # Add channel specs - always use explicit send/receive
             cmd.extend([
-                "-n", str(send_channels),
-                "-o", str(receive_channels)
+                "--sendchannels", str(send_channels),
+                "--receivechannels", str(receive_channels)
             ])
             
             logger.info(f"Starting JackTrip client: {' '.join(cmd)}")
