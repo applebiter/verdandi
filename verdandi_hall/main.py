@@ -466,11 +466,11 @@ class VerdandiHall(QMainWindow):
         # Get the inner canvas
         canvas = self.remote_jack_canvas.canvas
         
+        # Clear existing data BEFORE batch mode so view is properly cleared
+        canvas.model.clear()
+        
         # Begin batch mode to prevent multiple refreshes
         canvas.model.begin_batch()
-        
-        # Clear existing data
-        canvas.model.clear()
         
         # Get hub info from database to determine naming
         from verdandi_codex.models.jacktrip import JackTripHub
