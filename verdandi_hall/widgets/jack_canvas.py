@@ -913,6 +913,9 @@ class NodeCanvasWidget(QWidget):
                 for in_port in in_ports:
                     self.model.add_connection(out_port, in_port)
             
+            # Map JackTrip IP addresses to hostnames
+            self._map_jacktrip_clients_to_hostnames(list(clients.keys()))
+            
             # End batch - trigger single rebuild
             self.model.end_batch()
             
@@ -922,19 +925,47 @@ class NodeCanvasWidget(QWidget):
         except Exception as e:
             logger.error(f"Error refreshing from JACK: {e}", exc_info=True)
     
+    def _map_jacktrip_clients_to_hostnames(self, client_names: List[str]):
+        """Map JackTrip IP address clients to hostnames using database lookup."""
+        import re
+        from verdandi_codex.database import Database
+        from verdandi_codex.models.identity import Node
+        
+        # Pattern to match JackTrip IP-based client names like "__ffff_192.168.32.9"
+        ip_pattern = re.compile(r'__ffff_(\d+\.\d+\.\d+\.\d+)')
+        
+        for client_name in client_names:
+            match = ip_pattern.match(client_name)
+            if match:
+                ip_address = match.group(1)
+                try:
+                    # Look up hostname in database
+                    db = Database()
+                    with db.get_session() as session:
+                        node = session.query(Node).filter_by(ip_last_seen=ip_address).first()
+                        if node:
+                            # Set alias to display hostname instead of IP
+                            self.model.set_alias(client_name, node.hostname)
+                            logger.info(f"Mapped JackTrip client {ip_address} to {node.hostname}")
+                except Exception as e:
+                    logger.warning(f"Failed to map JackTrip client {ip_address}: {e}")
+    
     def _detect_jacktrip_state_from_clients(self, client_names: List[str]):
         """Detect if JackTrip hub or client is running based on JACK client names."""
+        import re
         has_hub = False
         has_client = False
         
+        # Pattern to match JackTrip IP-based client names
+        ip_pattern = re.compile(r'__ffff_\d+\.\d+\.\d+\.\d+')
+        
         for client_name in client_names:
             client_lower = client_name.lower()
-            # Check for JackTrip hub (usually just "jacktrip" or contains "jacktrip")
-            # Hub mode typically shows as just "jacktrip"
-            if client_lower == "jacktrip":
+            # Check for JackTrip hub
+            if client_lower == "hub_server":
                 has_hub = True
-            # Check for JackTrip client (contains hostname or "jacktrip-" prefix)
-            elif "jacktrip" in client_lower and client_lower != "jacktrip":
+            # Check for JackTrip clients (IP-based names or containing "jacktrip")
+            elif ip_pattern.match(client_name) or ("jacktrip" in client_lower and client_lower != "jacktrip"):
                 has_client = True
         
         # Notify parent widget if callback is set
