@@ -844,10 +844,15 @@ class FabricCanvas(QGraphicsView):
                     "receive_channels": conn_info["receive_channels"]
                 })
             
+            # Save current zoom level
+            transform = self.transform()
+            zoom_level = transform.m11()  # Get horizontal scale factor
+            
             preset_data = {
                 "positions": positions,
                 "connections": connections,
-                "hub_node_id": self.hub_node_id
+                "hub_node_id": self.hub_node_id,
+                "zoom_level": zoom_level  # Save zoom level
             }
             
             with open(preset_file, 'w') as f:
@@ -885,6 +890,12 @@ class FabricCanvas(QGraphicsView):
                 # Update parent widget's combo box if accessible
                 if hasattr(self, 'parent') and hasattr(self.parent(), '_populate_hub_nodes'):
                     self.parent()._populate_hub_nodes()
+            
+            # Restore zoom level if saved
+            if "zoom_level" in preset_data:
+                zoom_level = preset_data["zoom_level"]
+                self.resetTransform()
+                self.scale(zoom_level, zoom_level)
             
             # Restore connections (recreate wires)
             # Clear existing wires first

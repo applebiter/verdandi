@@ -1059,11 +1059,16 @@ class NodeCanvasWidget(QWidget):
         default_name = self.current_preset_name or ""
         name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:", text=default_name)
         if ok and name:
+            # Save current zoom level
+            transform = self.transform()
+            zoom_level = transform.m11()  # Get horizontal scale factor
+            
             data = {
                 "name": name,
                 "connections": {c.output_port: [c.input_port] for c in self.model.connections},
                 "positions": {n.name: (n.x, n.y) for n in self.model.nodes.values()},
-                "aliases": self.model.aliases.copy()  # Save client aliases
+                "aliases": self.model.aliases.copy(),  # Save client aliases
+                "zoom_level": zoom_level  # Save zoom level
             }
             
             path = self.presets_dir / f"{name}.json"
@@ -1098,6 +1103,12 @@ class NodeCanvasWidget(QWidget):
         
         # Load aliases
         self.model.aliases = data.get("aliases", {})
+        
+        # Restore zoom level if saved
+        if "zoom_level" in data:
+            zoom_level = data["zoom_level"]
+            self.resetTransform()
+            self.scale(zoom_level, zoom_level)
         
         # Apply positions immediately to existing nodes
         for node_name, (x, y) in self._preset_positions.items():
@@ -1176,6 +1187,12 @@ class NodeCanvasWidget(QWidget):
             
             # Load aliases
             self.model.aliases = data.get("aliases", {})
+            
+            # Restore zoom level if saved
+            if "zoom_level" in data:
+                zoom_level = data["zoom_level"]
+                self.resetTransform()
+                self.scale(zoom_level, zoom_level)
             
             # Apply positions immediately to existing nodes
             for node_name, (x, y) in self._preset_positions.items():
