@@ -128,13 +128,30 @@ class JackServicer(verdandi_pb2_grpc.JackServiceServicer):
             )
         
         try:
+            logger.info(f"ConnectPorts: Attempting to connect '{request.output_port}' -> '{request.input_port}'")
+            
+            # Verify ports exist
+            try:
+                out_port = client.get_port_by_name(request.output_port)
+                in_port = client.get_port_by_name(request.input_port)
+                logger.info(f"  Output port exists: {out_port.name}, is_output={out_port.is_output}")
+                logger.info(f"  Input port exists: {in_port.name}, is_input={out_port.is_input}")
+            except Exception as port_err:
+                logger.error(f"  Port lookup failed: {port_err}")
+                return verdandi_pb2.PortOperationResponse(
+                    success=False,
+                    message=f"Port not found: {port_err}"
+                )
+            
+            # Attempt connection
             client.connect(request.output_port, request.input_port)
+            logger.info(f"  Connection successful")
             return verdandi_pb2.PortOperationResponse(
                 success=True,
                 message=f"Connected {request.output_port} -> {request.input_port}"
             )
         except Exception as e:
-            logger.error(f"Failed to connect ports: {e}")
+            logger.error(f"  Failed to connect ports: {e}")
             return verdandi_pb2.PortOperationResponse(
                 success=False,
                 message=str(e)
