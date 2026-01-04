@@ -1149,7 +1149,7 @@ class NodeCanvasWidget(QWidget):
                         self.model.move_node(node.name, x, y)
                         break
         
-        # Apply connections (only if jack_manager available)
+        # Apply connections (only for local canvas with jack_manager)
         if self.jack_manager:
             for out_port, in_ports in data.get("connections", {}).items():
                 for in_port in in_ports:
@@ -1157,6 +1157,9 @@ class NodeCanvasWidget(QWidget):
                         self.jack_manager.connect_ports(out_port, in_port)
                     except:
                         pass
+        
+        # For remote canvases, connections are managed on the remote system
+        # and will be displayed when the graph is refreshed
         
         # Mark as current and last used preset for this node
         self.current_preset_name = name

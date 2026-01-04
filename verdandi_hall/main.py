@@ -445,6 +445,49 @@ class VerdandiHall(QMainWindow):
         # Begin batch mode to prevent multiple refreshes
         canvas.model.begin_batch()
         
+        # Load saved preset positions if available
+        saved_positions = {}  # Map from node name to (x, y)
+        saved_aliases = {}  # Map from real name to alias
+        try:
+            last_preset_name = canvas._get_last_preset_for_node()
+            logger.info(f"Remote canvas node_id: {canvas.node_id}, last_preset_name: {last_preset_name}")
+            if last_preset_name:
+                preset_path = canvas.presets_dir / f"{last_preset_name}.json"
+                logger.info(f"Looking for preset at: {preset_path}")
+                if preset_path.exists():
+                    import json
+                    with open(preset_path, 'r') as f:
+                        preset_data = json.load(f)
+                    
+                    # Load aliases first
+                    saved_aliases = preset_data.get("aliases", {})
+                    
+                    # Build position lookup from V2 format (preferred) or legacy format
+                    if "positions_v2" in preset_data:
+                        for entry in preset_data["positions_v2"]:
+                            entry_name = entry.get("name")
+                            entry_alias = entry.get("alias")
+                            pos = entry.get("pos")
+                            if entry_name and pos:
+                                saved_positions[entry_name] = pos
+                            if entry_alias and pos:
+                                saved_positions[entry_alias] = pos
+                    else:
+                        # Legacy positions format
+                        saved_positions = preset_data.get("positions", {})
+                    
+                    logger.info(f"Loaded preset '{last_preset_name}' with {len(saved_positions)} saved positions: {list(saved_positions.keys())}")
+                    logger.info(f"Loaded {len(saved_aliases)} aliases: {saved_aliases}")
+                else:
+                    logger.warning(f"Preset file not found: {preset_path}")
+            else:
+                logger.info("No last preset found for this remote node")
+        except Exception as e:
+            logger.error(f"Failed to load preset positions: {e}", exc_info=True)
+        
+        # Restore saved aliases to model before adding nodes
+        canvas.model.aliases = saved_aliases.copy()
+        
         # Get hub info from database to determine naming
         from verdandi_codex.models.jacktrip import JackTripHub
         hub_hostname = None
@@ -458,7 +501,7 @@ class VerdandiHall(QMainWindow):
             logger.error(f"Failed to get hub info: {e}")
         
         # Add clients and ports
-        x, y = 50, 50  # Starting position for auto-layout
+        x, y = 50, 50  # Starting position for auto-layout (fallback)
         for client in jack_graph.clients:
             client_name = client.name  # Keep original name for node creation
             hostname_alias = None  # Track if we need to set an alias
@@ -483,7 +526,13 @@ class VerdandiHall(QMainWindow):
                 # Separate into capture (sources) and playback (sinks)
                 if client.output_ports:
                     node_name = "system (capture)"
-                    node = canvas.model.add_node(node_name, x, y)
+                    # Check for saved position
+                    if node_name in saved_positions:
+                        node_x, node_y = saved_positions[node_name]
+                        logger.info(f"Using saved position for '{node_name}': ({node_x}, {node_y})")
+                    else:
+                        node_x, node_y = x, y
+                    node = canvas.model.add_node(node_name, node_x, node_y)
                     for jack_port in client.output_ports:
                         node.outputs.append(
                             PortModel(
@@ -497,7 +546,13 @@ class VerdandiHall(QMainWindow):
                 
                 if client.input_ports:
                     node_name = "system (playback)"
-                    node = canvas.model.add_node(node_name, x, y)
+                    # Check for saved position
+                    if node_name in saved_positions:
+                        node_x, node_y = saved_positions[node_name]
+                        logger.info(f"Using saved position for '{node_name}': ({node_x}, {node_y})")
+                    else:
+                        node_x, node_y = x, y
+                    node = canvas.model.add_node(node_name, node_x, node_y)
                     for jack_port in client.input_ports:
                         node.inputs.append(
                             PortModel(
@@ -513,7 +568,13 @@ class VerdandiHall(QMainWindow):
                 # Split a2j (MIDI bridge) clients into capture (sources) and playback (sinks)
                 if client.output_ports:
                     node_name = f"{client_name} (capture)"
-                    node = canvas.model.add_node(node_name, x, y)
+                    # Check for saved position
+                    if node_name in saved_positions:
+                        node_x, node_y = saved_positions[node_name]
+                        logger.info(f"Using saved position for '{node_name}': ({node_x}, {node_y})")
+                    else:
+                        node_x, node_y = x, y
+                    node = canvas.model.add_node(node_name, node_x, node_y)
                     for jack_port in client.output_ports:
                         node.outputs.append(
                             PortModel(
@@ -527,7 +588,13 @@ class VerdandiHall(QMainWindow):
                 
                 if client.input_ports:
                     node_name = f"{client_name} (playback)"
-                    node = canvas.model.add_node(node_name, x, y)
+                    # Check for saved position
+                    if node_name in saved_positions:
+                        node_x, node_y = saved_positions[node_name]
+                        logger.info(f"Using saved position for '{node_name}': ({node_x}, {node_y})")
+                    else:
+                        node_x, node_y = x, y
+                    node = canvas.model.add_node(node_name, node_x, node_y)
                     for jack_port in client.input_ports:
                         node.inputs.append(
                             PortModel(
@@ -541,7 +608,16 @@ class VerdandiHall(QMainWindow):
             
             else:
                 # Normal client - keep inputs and outputs together
-                node = canvas.model.add_node(client_name, x, y)
+                # Check for saved position (try both real name and alias)
+                node_x, node_y = x, y  # Default to auto-layout position
+                if client_name in saved_positions:
+                    node_x, node_y = saved_positions[client_name]
+                    logger.info(f"Using saved position for '{client_name}': ({node_x}, {node_y})")
+                elif hostname_alias and hostname_alias in saved_positions:
+                    node_x, node_y = saved_positions[hostname_alias]
+                    logger.info(f"Using saved position for '{client_name}' via alias '{hostname_alias}': ({node_x}, {node_y})")
+                
+                node = canvas.model.add_node(client_name, node_x, node_y)
                 
                 # Set hostname alias if this is a JackTrip client
                 if hostname_alias:
