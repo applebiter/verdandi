@@ -616,6 +616,9 @@ class VerdandiHall(QMainWindow):
                 elif hostname_alias and hostname_alias in saved_positions:
                     node_x, node_y = saved_positions[hostname_alias]
                     logger.info(f"Using saved position for '{client_name}' via alias '{hostname_alias}': ({node_x}, {node_y})")
+                else:
+                    logger.info(f"No saved position for '{client_name}' (alias: {hostname_alias}), using auto-layout: ({node_x}, {node_y})")
+                    logger.debug(f"Available saved positions: {list(saved_positions.keys())}")
                 
                 node = canvas.model.add_node(client_name, node_x, node_y)
                 

@@ -2,7 +2,7 @@
 SQLAlchemy models for JackTrip hub tracking.
 """
 
-from sqlalchemy import Column, String, Integer, DateTime
+from sqlalchemy import Column, String, Integer, DateTime, Boolean
 from sqlalchemy.dialects.postgresql import UUID
 from datetime import datetime
 
@@ -22,3 +22,18 @@ class JackTripHub(Base):
     
     def __repr__(self):
         return f"<JackTripHub(hub_hostname={self.hub_hostname}, port={self.hub_port})>"
+
+
+class JackTripClient(Base):
+    """Tracks which nodes are connected as JackTrip clients."""
+    
+    __tablename__ = "jacktrip_clients"
+    
+    client_node_id = Column(UUID(as_uuid=True), primary_key=True)
+    client_hostname = Column(String(255), nullable=False)
+    connected_at = Column(DateTime, default=datetime.utcnow)
+    send_channels = Column(Integer, default=2)
+    receive_channels = Column(Integer, default=2)
+    
+    def __repr__(self):
+        return f"<JackTripClient(client_hostname={self.client_hostname})>"

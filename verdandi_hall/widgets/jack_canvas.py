@@ -1060,7 +1060,7 @@ class NodeCanvasWidget(QWidget):
         name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:", text=default_name)
         if ok and name:
             # Save current zoom level
-            transform = self.transform()
+            transform = self.canvas.transform()
             zoom_level = transform.m11()  # Get horizontal scale factor
             
             # Store positions with both real name and alias to avoid mismatches on reload
@@ -1119,8 +1119,8 @@ class NodeCanvasWidget(QWidget):
         # Restore zoom level if saved
         if "zoom_level" in data:
             zoom_level = data["zoom_level"]
-            self.resetTransform()
-            self.scale(zoom_level, zoom_level)
+            self.canvas.resetTransform()
+            self.canvas.scale(zoom_level, zoom_level)
         
         # Apply positions immediately to existing nodes (match by real name or alias)
         if self._preset_positions_v2:
@@ -1229,8 +1229,8 @@ class NodeCanvasWidget(QWidget):
             # Restore zoom level if saved
             if "zoom_level" in data:
                 zoom_level = data["zoom_level"]
-                self.resetTransform()
-                self.scale(zoom_level, zoom_level)
+                self.canvas.resetTransform()
+                self.canvas.scale(zoom_level, zoom_level)
             
             # Apply positions immediately to existing nodes (match by real name or alias)
             if self._preset_positions_v2:
@@ -1328,6 +1328,76 @@ class JackCanvasWithControls(QWidget):
         # Now set jack_manager to trigger initial refresh with callback in place
         if jack_manager:
             self.canvas.set_jack_manager(jack_manager)
+        
+        # Query database for initial state
+        self._sync_state_from_database()
+    
+    def _sync_state_from_database(self):
+        """Query database for current JackTrip state and update button states."""
+        from verdandi_codex.config import VerdandiConfig
+        from verdandi_codex.database import Database
+        from verdandi_codex.models.jacktrip import JackTripHub, JackTripClient
+        
+        try:
+            config = VerdandiConfig.load()
+            db = Database(config.database)
+            session = db.get_session()
+            
+            # Check if hub is running
+            hub = session.query(JackTripHub).first()
+            hub_running = hub and hub.hub_node_id is not None
+            hub_is_local = hub_running and str(hub.hub_node_id) == str(config.node.node_id)
+            
+            # Check if this node is connected as client
+            client = session.query(JackTripClient).filter_by(
+                client_node_id=config.node.node_id
+            ).first()
+            client_connected = client is not None
+            
+            session.close()
+            
+            logger.info(f"Database state: hub_running={hub_running}, hub_is_local={hub_is_local}, client_connected={client_connected}")
+            
+            # Update button states
+            if hub_is_local:
+                self.hub_running = True
+                self.start_hub_btn.setEnabled(False)
+                self.stop_hub_btn.setEnabled(True)
+                self.connect_client_btn.setEnabled(False)
+                self.status_label.setText("Status: <b style='color: #6f6'>Hub Running</b>")
+            elif hub_running:
+                # Hub running elsewhere
+                self.hub_running = False
+                self.start_hub_btn.setEnabled(False)
+                self.stop_hub_btn.setEnabled(False)
+                if client_connected:
+                    self.connect_client_btn.setEnabled(False)
+                    self.disconnect_client_btn.setEnabled(True)
+                else:
+                    self.connect_client_btn.setEnabled(True)
+                    self.disconnect_client_btn.setEnabled(False)
+            else:
+                # No hub running
+                self.hub_running = False
+                self.start_hub_btn.setEnabled(True)
+                self.stop_hub_btn.setEnabled(False)
+                self.connect_client_btn.setEnabled(False)
+                self.disconnect_client_btn.setEnabled(False)
+            
+            if client_connected:
+                self.client_connected = True
+                self.disconnect_client_btn.setEnabled(True)
+                self.connect_client_btn.setEnabled(False)
+                if not hub_is_local:
+                    self.status_label.setText("Status: <b style='color: #6f6'>Connected</b>")
+            else:
+                self.client_connected = False
+                self.disconnect_client_btn.setEnabled(False)
+                if not hub_is_local and not hub_running:
+                    self.status_label.setText("Status: <i>Idle</i>")
+            
+        except Exception as e:
+            logger.error(f"Failed to sync state from database: {e}", exc_info=True)
     
     def _on_jacktrip_state_detected(self, has_hub: bool, has_client: bool, client_names: List[str] = None):
         """Called when JackTrip state is detected from JACK graph."""
@@ -1553,6 +1623,9 @@ class JackCanvasWithControls(QWidget):
             from PySide6.QtCore import QTimer
             QTimer.singleShot(1000, self.canvas.refresh_from_jack)
             
+            # Sync button states from database
+            self._sync_state_from_database()
+            
         except Exception as e:
             logger.error(f"Failed to start hub: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to start hub: {e}")
@@ -1599,6 +1672,9 @@ class JackCanvasWithControls(QWidget):
             # Refresh canvas
             from PySide6.QtCore import QTimer
             QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            
+            # Sync button states from database
+            self._sync_state_from_database()
             
         except Exception as e:
             logger.error(f"Failed to stop hub: {e}", exc_info=True)
@@ -1752,6 +1828,9 @@ class JackCanvasWithControls(QWidget):
                 # For local canvas, just refresh locally
                 QTimer.singleShot(2000, self.canvas.refresh_from_jack)
             
+            # Sync button states from database
+            self._sync_state_from_database()
+            
         except Exception as e:
             logger.error(f"Failed to connect client: {e}", exc_info=True)
             QMessageBox.critical(self, "Error", f"Failed to connect client: {e}")
@@ -1783,6 +1862,9 @@ class JackCanvasWithControls(QWidget):
             # Refresh canvas
             from PySide6.QtCore import QTimer
             QTimer.singleShot(1000, self.canvas.refresh_from_jack)
+            
+            # Sync button states from database
+            self._sync_state_from_database()
             
         except Exception as e:
             logger.error(f"Failed to disconnect client: {e}", exc_info=True)

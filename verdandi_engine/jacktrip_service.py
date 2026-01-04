@@ -183,6 +183,23 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
                 "buffer_size": buffer_size
             }
             
+            # Save client connection to database
+            from verdandi_codex.models.jacktrip import JackTripClient
+            try:
+                session = self.db.get_session()
+                client_record = JackTripClient(
+                    client_node_id=self.config.node.node_id,
+                    client_hostname=self.config.node.hostname,
+                    send_channels=send_channels,
+                    receive_channels=receive_channels
+                )
+                session.merge(client_record)  # Insert or update
+                session.commit()
+                session.close()
+                logger.info(f"Saved client connection to database")
+            except Exception as e:
+                logger.error(f"Failed to save client connection to database: {e}")
+            
             return verdandi_pb2.JackTripOperationResponse(
                 success=True,
                 message=f"JackTrip client connected to {hub_address}:{hub_port}"
@@ -211,6 +228,19 @@ class JackTripServicer(verdandi_pb2_grpc.JackTripServiceServicer):
             self.client_process.wait(timeout=5)
             self.client_process = None
             self.client_config = {}
+            
+            # Remove client connection from database
+            from verdandi_codex.models.jacktrip import JackTripClient
+            try:
+                session = self.db.get_session()
+                session.query(JackTripClient).filter_by(
+                    client_node_id=self.config.node.node_id
+                ).delete()
+                session.commit()
+                session.close()
+                logger.info(f"Removed client connection from database")
+            except Exception as e:
+                logger.error(f"Failed to remove client connection from database: {e}")
             
             return verdandi_pb2.JackTripOperationResponse(
                 success=True,
