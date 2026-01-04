@@ -69,6 +69,7 @@ class VerdandiHall(QMainWindow):
         
         # Tab widget for different views
         self.tabs = QTabWidget()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         layout.addWidget(self.tabs)
         
         # Tab 1: Status/Overview
@@ -333,6 +334,13 @@ class VerdandiHall(QMainWindow):
         
         # Load the remote node's JACK graph
         self._load_remote_jack_graph(node_id)
+    
+    def _on_tab_changed(self, index):
+        """Handle tab change - sync button states when switching to Local JACK tab."""
+        tab_name = self.tabs.tabText(index)
+        if tab_name == "Local JACK" and hasattr(self, 'jack_canvas_widget'):
+            # Sync button states from database
+            self.jack_canvas_widget._sync_state_from_database()
     
     def _load_remote_jack_graph(self, node_id: str, force_refresh: bool = False):
         """Load and display a remote node's JACK graph in the Remote JACK tab."""
