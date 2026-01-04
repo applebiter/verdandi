@@ -1165,12 +1165,10 @@ class NodeCanvasWidget(QWidget):
         self.current_preset_name = name
         self._set_last_preset_for_node(name)
         
-        # Refresh if jack_manager available, otherwise trigger view rebuild
+        # Refresh if jack_manager available to apply connections
         if self.jack_manager:
             self.refresh_from_jack()
-        else:
-            # For remote canvases without jack_manager, just rebuild the view
-            self.model.changed.emit()
+        # For remote canvases, don't refresh - positions are already applied
         
         QMessageBox.information(self, "Success", f"Preset '{name}' loaded!")
     
@@ -1267,12 +1265,8 @@ class NodeCanvasWidget(QWidget):
             # Mark as current preset
             self.current_preset_name = name
             
-            # Refresh if jack_manager available, otherwise trigger view rebuild
-            if self.jack_manager:
-                self.refresh_from_jack()
-            else:
-                # For remote canvases without jack_manager, just rebuild the view
-                self.model.changed.emit()
+            # Just rebuild the view with updated positions - don't refresh from source
+            self.model.changed.emit()
             
             logger.info(f"Auto-loaded preset '{name}' for node {self.node_id}")
         except Exception as e:
