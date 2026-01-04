@@ -1122,32 +1122,22 @@ class NodeCanvasWidget(QWidget):
             self.canvas.resetTransform()
             self.canvas.scale(zoom_level, zoom_level)
         
-        # Apply positions immediately to existing nodes (match by real name or alias)
+        # Apply positions immediately to existing nodes (match by real name only)
         if self._preset_positions_v2:
-            # Prefer V2 data if present
+            # Prefer V2 data if present - match by real name only
             for entry in self._preset_positions_v2:
-                entry_names = [entry.get("name")]
-                if entry.get("alias"):
-                    entry_names.append(entry.get("alias"))
+                entry_name = entry.get("name")  # This is the real name
                 pos = entry.get("pos", None)
-                if not pos:
+                if not pos or not entry_name:
                     continue
-                for node in self.model.nodes.values():
-                    display_name = self.model.get_display_name(node.name)
-                    if node.name in entry_names or display_name in entry_names:
-                        self.model.move_node(node.name, pos[0], pos[1])
+                # Match by real name only - ignore alias for matching
+                if entry_name in self.model.nodes:
+                    self.model.move_node(entry_name, pos[0], pos[1])
         else:
-            # Legacy positions map
+            # Legacy positions map - also match by real name only
             for node_name, (x, y) in self._preset_positions.items():
-                # Try matching by real name
                 if node_name in self.model.nodes:
                     self.model.move_node(node_name, x, y)
-                    continue
-                # Fallback: match by display (alias) name
-                for node in self.model.nodes.values():
-                    if self.model.get_display_name(node.name) == node_name:
-                        self.model.move_node(node.name, x, y)
-                        break
         
         # Apply connections (only for local canvas with jack_manager)
         if self.jack_manager:
@@ -1230,28 +1220,19 @@ class NodeCanvasWidget(QWidget):
                 self.canvas.resetTransform()
                 self.canvas.scale(zoom_level, zoom_level)
             
-            # Apply positions immediately to existing nodes (match by real name or alias)
+            # Apply positions immediately to existing nodes (match by real name only)
             if self._preset_positions_v2:
                 for entry in self._preset_positions_v2:
-                    entry_names = [entry.get("name")]
-                    if entry.get("alias"):
-                        entry_names.append(entry.get("alias"))
+                    entry_name = entry.get("name")  # Real name only
                     pos = entry.get("pos", None)
-                    if not pos:
+                    if not pos or not entry_name:
                         continue
-                    for node in self.model.nodes.values():
-                        display_name = self.model.get_display_name(node.name)
-                        if node.name in entry_names or display_name in entry_names:
-                            self.model.move_node(node.name, pos[0], pos[1])
+                    if entry_name in self.model.nodes:
+                        self.model.move_node(entry_name, pos[0], pos[1])
             else:
                 for node_name, (x, y) in self._preset_positions.items():
                     if node_name in self.model.nodes:
                         self.model.move_node(node_name, x, y)
-                        continue
-                    for node in self.model.nodes.values():
-                        if self.model.get_display_name(node.name) == node_name:
-                            self.model.move_node(node.name, x, y)
-                            break
             
             # Apply connections (only if jack_manager available)
             if self.jack_manager:
